@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 cmd_lib = "1.9.3"
+rfd = "0.14.1"
+slint = "1.5.1"
