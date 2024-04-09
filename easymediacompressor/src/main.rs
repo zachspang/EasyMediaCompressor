@@ -1,7 +1,7 @@
-use std::{env, io::{self, Error}, path::Path, time::Instant, thread};
+use std::{collections::HashMap, env, fs::File, io::{self, BufRead, BufReader, Error, Write}, path::Path, thread, time::Instant};
 use cmd_lib::*;
 use rfd::FileDialog;
-use slint::SharedString;
+use slint::{SharedString, Weak};
 /*Notes
 How to run: 
 cd easymediacompressor
@@ -12,7 +12,7 @@ TODO: Setting menu with config file, Move gui into a .slint file,  Compression f
 
 slint::slint!{
     //TODO: remove unused imports
-    import {Button, Spinner, StandardButton, VerticalBox, ComboBox, GroupBox, Switch, SpinBox, CheckBox, LineEdit, HorizontalBox,TextEdit} from "std-widgets.slint";
+    import {Button, Spinner, StandardButton, VerticalBox, ComboBox, GroupBox, Switch, SpinBox, CheckBox, LineEdit, HorizontalBox,TextEdit, Slider} from "std-widgets.slint";
     
     //Enum for types of Choose File buttons throughout the app
     enum ChooseFileButtonType{
@@ -78,162 +78,294 @@ slint::slint!{
         ]
         }
         Text{ text: "Compress";}
-        
     }
 
+    component SidebarButton inherits Rectangle {
+        in-out property <bool> active;
+
+        height: 50px;
+        width: 50px;
+
+        callback activate;
+
+        TouchArea {
+            clicked => {root.activate()}
+        }
+
+    }
+
+
+    
     export component App inherits Window {
+        //settings, can only change by hitting apply after changing them in the setting menu
+        in property <int> default_target_size: 25;
+        in property <string> default_size_unit: "MB";
+        in property <bool> overwrite: true;
+        in property <string> output_name_style: "_Compressed"; //"_Compressed" or "timestamp"
+        in property <bool> two_pass_encoding: false;
+
+        //properties that change at anytime during execution
         in property <string> compress_status;
         in property <bool> widgets-enabled: true;
         in property <string> input_path;
         in property <string> output_path;
-        in-out property <int> target_size;
-        in-out property <string> size_unit: "MB";
+        in-out property <int> target_size: default_target_size;
+        in-out property <string> size_unit: default_size_unit;
 
-        width: 420px;
+        //Current active page, 0 = video, 1 = image, 2 = audio, 3 = settings
+        out property <int> active_page:0;
+
+        width: 480px;
         height: 330px;
         background: #272626;
 
-        VerticalBox {
 
-            //Target Size
-            HorizontalBox {
-                padding-bottom: 0px;
-                Text {
-                    color: white;
-                    text:"Target File Size: ";
-                    font-size: 15px;
-                    height: 17px;
-                }
-            }
-            HorizontalBox {
-                padding-top: 0px;
-                padding: 7px;
-                spacing: 20px;
-                LineEdit {
-                    enabled: widgets-enabled;
-                    width: 50px;
-                    height: 30px;
-                    text: target_size;
-                    input-type: number;
-                    horizontal-alignment: left;
-                    //Keep target size less than 1000, anything else is proably unintentional or should be a different unit
-                    edited => {
-                        if self.text.to-float() > 9999{
-                            self.text = 9999;
-                        }
-                        target_size = self.text.to-float();
+        GridLayout {
+            spacing: 12px;
+            //Sidebar with settings menu and tabs for video, audio and images
+            Rectangle {
+                background: #555;
+                width: 59px;
+                height: 330px;
+
+                video := SidebarButton {
+                    y:10px;
+                    activate => {
+                        root.active_page = 0;
                     }
-                    
-                }
-                //TODO: Make this functional
-                ComboBox {
-                    enabled: widgets-enabled;
-                    width:70px;
-                    height: 30px;
-                    model: ["MB","GB"];
-                    selected => {
-                        size_unit = self.current-value;
+                    Image{
+                        width: 50px;
+                        source: @image-url("../icons/video.svg");  
+                        colorize: (active_page == 0) ? #706d6d : black;
                     }
-                } 
-                Text {
-                    color: white;
-                    text:" Overwrite output.mp4:";
-                    font-size: 15px;
-                    height: 17px;
-                    width: 155px;
+
                 }
-                //TODO: add bool overwrite as an argument to compress_video, if true pass -y ~~~\\output.mp4 into ffmpeg
-                Switch {
-                    enabled: widgets-enabled;
-                    height: 10px;
+
+                image := SidebarButton {
+                    y:70px;
+                    activate => {
+                        root.active_page = 1;
+                    }
+                    Image{
+                        width: 50px;
+                        source: @image-url("../icons/image.svg");  
+                        colorize: (active_page == 1) ? #706d6d : black;
+                    }
+
                 }
+
+                audio := SidebarButton {
+                    y:130px;
+                    activate => {
+                        root.active_page = 2;
+                    }
+                    Image{
+                        width: 50px;
+                        source: @image-url("../icons/audio.svg");  
+                        colorize: (active_page == 2) ? #706d6d : black;
+                    }
+
+                }
+
+                settings := SidebarButton {
+                    y:260px;
+                    activate => {
+                        root.active_page = 3;
+                    }
+                    Image{
+                        width: 50px;
+                        source: @image-url("../icons/settings.svg");  
+                        colorize: (active_page == 3) ? #706d6d : black;
+                    }
+
+                }
+               
+
             }
 
-            //Input
-            HorizontalBox {
-                padding-bottom: 0px;
-                Text {
-                    color: white;
-                    text:"Input File: ";
-                    font-size: 15px;
-                    height: 17px;
-                }   
-            }
-            HorizontalBox {
-                padding-top: 0px;
-                alignment: start;
-                padding: 7px;
-                spacing: 30px;
-                LineEdit {
-                    enabled: widgets-enabled;
-                    font-size: 14px;
-                    horizontal-alignment: left;
-                    width: 280px;
-                    height: 30px;
-                    read-only: true;
-                    placeholder-text: input_path;
-                }
-                ChooseFile {
-                    type: ChooseFileButtonType.Input;
-                    enabled: widgets-enabled;
-                }
-            }
-
-            //Output
-            HorizontalBox {
-                padding-bottom: 0px;
-                Text {
-                    color: white;
-                    text:"Output File Path: ";
-                    font-size: 15px;
-                    height: 17px;
-                }    
-            }
-            HorizontalBox {
-                padding-top: 0px;
-                alignment: start;
-                padding: 7px;
-                spacing: 30px;
-                LineEdit {
-                    enabled: widgets-enabled;
-                    font-size: 14px;
-                    horizontal-alignment: left;
-                    width: 280px;
-                    height: 30px;
-                    read-only: true;
-                    placeholder-text: output_path;
-                }
-                ChooseFile {
-                    type: ChooseFileButtonType.Output;
-                    enabled: widgets-enabled;
-                }
-            }      
-            
-            //Compress
-            HorizontalBox {
+            //Video tab
+            VerticalLayout {
+                visible: root.active_page == 0;
                 padding-top: 15px;
                 spacing: 15px;
-                //compress_status text
-                //TODO: find way to display longer messages
-                Text {
-                    color: white;
-                    text: compress_status;
-                    font-size: 15px;
-                    height: 50px;
-                    width: 200px;
-                    wrap: word-wrap;
-                    horizontal-alignment: left;
+
+                //Target Size
+                HorizontalLayout {
+                    Text {
+                        color: white;
+                        text:"Target File Size: ";
+                        font-size: 15px;
+                        height: 17px;
+                    }
                 }
-                Spinner {
-                    indeterminate: true;
-                    visible: !widgets-enabled;
+                HorizontalLayout {
+                    spacing: 15px;
+                    LineEdit {
+                        enabled: widgets-enabled;
+                        width: 50px;
+                        height: 30px;
+                        text: target_size;
+                        input-type: number;
+                        horizontal-alignment: left;
+                        //Keep target size less than 1000, anything else is proably unintentional or should be a different unit
+                        edited => {
+                            if self.text.to-float() > 9999{
+                                self.text = 9999;
+                            }
+                            target_size = self.text.to-float();
+                        }
+                        
+                    }
+                    
+                    ComboBox {
+                        enabled: widgets-enabled;
+                        width:70px;
+                        height: 30px;
+                        current-value: size_unit;
+                        model: ["MB","GB"];
+                        selected => {
+                            size_unit = self.current-value;
+                        }
+                    } 
+                    // Text {
+                    //     color: white;
+                    //     text:" Overwrite output.mp4:";
+                    //     font-size: 15px;
+                    //     height: 17px;
+                    //     width: 155px;
+                    // }
+                    // //TODO: add bool overwrite as an argument to compress_video, if true pass -y ~~~\\output.mp4 into ffmpeg
+                    // Switch {
+                    //     enabled: widgets-enabled;
+                    //     height: 10px;
+                    // }
                 }
-                CompressButton{
-                    enabled: widgets-enabled;
+
+                //Input
+                HorizontalLayout {
+                    Text {
+                        color: white;
+                        text:"Input File: ";
+                        font-size: 15px;
+                        height: 17px;
+                    }   
+                }
+                HorizontalLayout {
+                    spacing: 30px;
+                    LineEdit {
+                        enabled: widgets-enabled;
+                        font-size: 14px;
+                        horizontal-alignment: left;
+                        width: 280px;
+                        height: 30px;
+                        read-only: true;
+                        placeholder-text: input_path;
+                    }
+                    ChooseFile {
+                        type: ChooseFileButtonType.Input;
+                        enabled: widgets-enabled;
+                    }
+                }
+
+                //Output
+                HorizontalLayout {
+                    Text {
+                        color: white;
+                        text:"Output File Path: ";
+                        font-size: 15px;
+                        height: 17px;
+                    }    
+                }
+                HorizontalLayout {
+                    spacing: 30px;
+                    LineEdit {
+                        enabled: widgets-enabled;
+                        font-size: 14px;
+                        horizontal-alignment: left;
+                        width: 280px;
+                        height: 30px;
+                        read-only: true;
+                        placeholder-text: output_path;
+                    }
+                    ChooseFile {
+                        type: ChooseFileButtonType.Output;
+                        enabled: widgets-enabled;
+                    }
+                }      
+                
+                //Compress
+                HorizontalLayout {
+                    spacing: 35px;
+                    //compress_status text
+                    //TODO: find way to display longer messages
+                    Text {
+                        color: white;
+                        text: compress_status;
+                        font-size: 15px;
+                        height: 50px;
+                        width: 200px;
+                        wrap: word-wrap;
+                        horizontal-alignment: left;
+                    }
+                    Spinner {
+                        indeterminate: true;
+                        visible: !widgets-enabled;
+                    }
+                    CompressButton{
+                        enabled: widgets-enabled;
+                    }
                 }
             }
+
+            //Image tab
+            VerticalLayout {
+                col: 1;
+                visible: root.active_page == 1;
+                padding-top: 15px;
+                spacing: 15px;
+                HorizontalLayout {
+                    Text {
+                        color: white;
+                        text: "WIP IMAGE";
+                        font-size: 15px;
+                        height: 17px;
+                    }
+                }
+            }
+
+            //Audio tab
+            VerticalLayout {
+                col: 1;
+                visible: root.active_page == 2;
+                padding-top: 15px;
+                spacing: 15px;
+                Text {
+                    color: white;
+                    text: "WIP AUDIO";
+                    font-size: 15px;
+                    height: 17px;
+                }
+            }
+
+            //Settings tab
+            VerticalLayout {
+                col: 1;
+                visible: root.active_page == 3;
+                padding-top: 15px;
+                spacing: 15px;
+                
+                HorizontalLayout {
+                    Text {
+                    color: white;
+                    text: "WIP SETTINGS";
+                    font-size: 15px;
+                    height: 17px;
+                }
+                }
+            }
+            
         }
-    }
+    } 
 }
 
 fn main() {
@@ -247,8 +379,6 @@ fn main() {
             if value == ChooseFileButtonType::Input{
                 let files = FileDialog::new()
                 .add_filter("video", &["mp4"])
-                //TODO: start from default set in settings
-                .set_directory("C:\\Users")
                 .pick_file();
                 if files.is_some(){
                     app.set_input_path(SharedString::from(files.unwrap().as_os_str().to_str().unwrap()))
@@ -257,8 +387,6 @@ fn main() {
             else if value == ChooseFileButtonType::Output{
                 let files = FileDialog::new()
                 .add_filter("video", &["mp4"])
-                //TODO: start from default set in settings
-                .set_directory("C:\\Users")
                 .pick_folder();
                 if files.is_some(){
                     app.set_output_path(SharedString::from(files.unwrap().as_os_str().to_str().unwrap()))
@@ -305,6 +433,13 @@ fn main() {
             });
         }
     });
+
+    //initialize variables with config file
+    match read_config(app.as_weak()){
+        Err(e) => println!("Config error {}", e),
+        Ok(_) => println!("Config successfully read")
+    }
+
     app.run().unwrap();
     
 }
@@ -340,7 +475,7 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
     match size_unit.as_str(){
         "MB" => target_size *= 1024 as f32,
         "GB" => target_size *= 1048576 as f32,
-        _ => {}
+        _ =>  return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"))
     }
     dbg!(size_unit);
     dbg!(target_size);
@@ -377,7 +512,8 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
         new_video_bitrate = 1.0;
     }
     
-    //This runs ffmpeg to lower the videos bitrate//TODO: Currently "-y" force overwrites any file with the same name as output_file, add check that path is empty, add (1), (2) etc at the end otherwise.
+    //This runs ffmpeg to lower the videos bitrate
+    //TODO: Currently "-y" force overwrites any file with the same name as output_file, add check that path is empty, add (1), (2) etc at the end otherwise.
     let compress_status = run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $output_file);
     
     //Slower but better quality two pass encoding to compress video
@@ -398,4 +534,62 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
     //     return pass2;
     // }
 
+}
+
+fn read_config(weak: Weak<App>)-> Result<(), std::io::Error>{
+    let app = weak.unwrap();
+    let file = File::open("..\\config.txt")?;
+    let buffer = BufReader::new(file);
+    let mut config_map:HashMap<String, String> = HashMap::new();
+    let mut split_vector:Vec<String>;
+
+    //For each line in the config map a key to value
+    for line in buffer.lines(){   
+        split_vector = line?.split("=").map(String::from).collect();
+        config_map.insert(split_vector.get(0).unwrap_or(&"".to_string()).trim().to_owned(), split_vector.get(1).unwrap_or(&"".to_string()).trim().to_owned());
+    }
+    
+    //if a key is in the map and the value is valid change the setting in the app
+    if config_map.contains_key("default_target_size"){
+        let value = config_map.get("default_target_size").unwrap().parse::<i32>().unwrap();
+        if value < 9999 || value > 1{
+            app.set_default_target_size(value);
+        }
+    }
+
+    if config_map.contains_key("default_size_unit"){
+        let value = config_map.get("default_size_unit").unwrap();
+        if value == "MB" || value == "GB"{
+            app.set_default_size_unit(SharedString::from(value));
+        }
+    }
+
+    if config_map.contains_key("overwrite"){
+        let value = config_map.get("overwrite").unwrap();
+        if value == "true"{
+            app.set_overwrite(true);
+        }
+        else {
+            app.set_overwrite(false);
+        }
+    }
+    
+    if config_map.contains_key("output_name_style"){
+        let value = config_map.get("output_name_style").unwrap();
+        if value == "_Compressed" || value == "timestamp"{
+            app.set_output_name_style(SharedString::from(value));
+        }
+    }
+
+    if config_map.contains_key("two_pass_encoding"){
+        let value = config_map.get("two_pass_encoding").unwrap();
+        if value == "true"{
+            app.set_two_pass_encoding(true);
+        }
+        else {
+            app.set_two_pass_encoding(false);
+        }
+    }
+
+    Ok(())
 }
