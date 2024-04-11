@@ -1,0 +1,561 @@
+//TODO: remove unused imports
+import {Button, Spinner, StandardButton, VerticalBox, ComboBox, GroupBox, Switch, SpinBox, CheckBox, LineEdit, HorizontalBox,TextEdit, Slider} from "std-widgets.slint";
+
+//Custom Switch, same as builtin switch except the colors
+export component ToggleSwitch inherits Rectangle {
+    callback toggled;
+    in-out property <bool> checked;
+    in-out property<bool> enabled <=> touch-area.enabled;
+    height: 20px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+
+    HorizontalLayout {
+        spacing: 8px;
+        indicator := Rectangle {
+            width: 40px;
+            border-width: 1px;
+            border-radius: root.height / 2;
+            border-color: self.background.darker(25%);
+            background: root.enabled ? (root.checked ? #0084ff: lightgray)  : lightgray;
+            animate background { duration: 100ms; }
+
+            bubble := Rectangle {
+                width: root.height - 8px;
+                height: bubble.width;
+                border-radius: bubble.height / 2;
+                y: 4px;
+                x: 4px + self.a * (indicator.width - bubble.width - 8px);
+                property <float> a: root.checked ? 1 : 0;
+                background: root.checked ? lightgray : (root.enabled ? #0084ff : lightgray);
+                animate a, background { duration: 200ms; easing: ease;}
+            }
+        }
+    }
+
+    touch-area := TouchArea {
+        width: root.width;
+        height: root.height;
+        clicked => {
+            if (root.enabled) {
+                root.checked = !root.checked;
+                root.toggled();
+            }
+        }
+    }
+}
+
+//Enum for types of Choose File buttons throughout the app
+enum ChooseFileButtonType{
+    Input,
+    Output
+}
+
+export global ButtonLogic{
+    callback choose-file-button-pressed(ChooseFileButtonType);
+    callback compress-button-pressed();
+    callback settings-apply();
+    callback settings-cancel();
+}
+
+component ChooseFile {
+    in property <ChooseFileButtonType> type;
+    in-out property <bool> enabled <=> ta.enabled;
+    Rectangle {
+        background: ta.pressed ? #555: #c0bbbb;
+        animate background { duration: 100ms;}
+        height: 25px;
+        width: 89px;
+        border-width: 2px;
+        border-radius: 10px;
+        border-color: self.background.darker(20%);
+        ta := TouchArea{
+            clicked => {ButtonLogic.choose-file-button-pressed(root.type);}
+        }
+        states [
+            active when enabled: {
+                background:#c0bbbb;
+            }
+            inactive when !enabled: {
+                background: #555;
+            }
+        ]
+    }
+    Text{ text: "Choose File";}
+}
+
+component CompressButton {
+    in-out property <bool> enabled <=> ta.enabled;
+    Rectangle {
+        background: ta.pressed ? #0a470d: #12df2d;
+        animate background { duration: 100ms;}
+        height: 25px;
+        width: 89px;
+        border-width: 2px;
+        border-radius: 10px;
+        border-color: self.background.darker(20%);
+        ta := TouchArea{
+            clicked => {
+                ButtonLogic.compress-button-pressed();
+            }
+        }
+        states [
+        active when enabled: {
+                background:#12df2d;
+            }
+            inactive when !enabled: {
+                background: #0a470d;
+            }
+    ]
+    }
+    Text{ text: "Compress";}
+}
+
+component SidebarButton inherits Rectangle {
+    in-out property <bool> active;
+
+    height: 50px;
+    width: 50px;
+
+    callback activate;
+
+    TouchArea {
+        clicked => {
+            root.activate();
+            ButtonLogic.settings-cancel();
+        }
+    }
+
+}  
+
+component SettingsApply {
+    in-out property <bool> enabled <=> ta.enabled;
+    Rectangle {
+        background: ta.pressed ? #555: #c0bbbb;
+        animate background { duration: 100ms;}
+        height: 25px;
+        width: 89px;
+        border-width: 2px;
+        border-radius: 10px;
+        border-color: self.background.darker(20%);
+        ta := TouchArea{
+            clicked => {ButtonLogic.settings-apply();}
+        }
+        states [
+            active when enabled: {
+                background:#c0bbbb;
+            }
+            inactive when !enabled: {
+                background: #555;
+            }
+        ]
+    }
+    Text{ text: "Apply";}
+}
+component SettingsCancel {
+    in-out property <bool> enabled <=> ta.enabled;
+    Rectangle {
+        background: ta.pressed ? #555: #c0bbbb;
+        animate background { duration: 100ms;}
+        height: 25px;
+        width: 89px;
+        border-width: 2px;
+        border-radius: 10px;
+        border-color: self.background.darker(20%);
+        ta := TouchArea{
+            clicked => {ButtonLogic.settings-cancel();}
+        }
+        states [
+            active when enabled: {
+                background:#c0bbbb;
+            }
+            inactive when !enabled: {
+                background: #555;
+            }
+        ]
+    }
+    Text{ text: "Cancel";}
+}
+
+export component App inherits Window {
+    //settings, can only change by hitting apply after changing them in the setting menu
+    in-out property <int> default_target_size;
+    in-out property <string> default_size_unit: "MB";
+    in-out property <bool> overwrite: true;
+    in-out property <string> output_name_style: "_Compressed"; //"_Compressed" or "timestamp"
+    in-out property <bool> two_pass_encoding: false;
+
+    //temp values for settings when something is changed but not applied, the are initialized to the stored values
+    in-out property <string> temp_default_target_size:default_target_size; //This needs to be a string so we can use a two way binding to make the cancel button work
+    in-out property <string> temp_default_size_unit:default_size_unit;
+    in-out property <bool> temp_overwrite:overwrite;
+    in-out property <string> temp_output_name_style:output_name_style;
+    in-out property <bool> temp_two_pass_encoding:two_pass_encoding;
+
+    //properties that change at anytime during execution
+    in property <string> compress_status;
+    in property <bool> widgets-enabled: true;
+    in property <string> input_path;
+    in property <string> output_path;
+    in-out property <int> target_size: default_target_size;
+    in-out property <string> size_unit: default_size_unit;
+
+    //Current active page, 0 = video, 1 = image, 2 = audio, 3 = settings
+    out property <int> active_page:0;
+
+    width: 480px;
+    height: 330px;
+    background: #272626;
+
+
+    GridLayout {
+        spacing: 12px;
+        //Sidebar with settings menu and tabs for video, audio and images
+        Rectangle {
+            background: #555;
+            width: 59px;
+            height: 330px;
+
+            video := SidebarButton {
+                y:10px;
+                activate => {
+                    root.active_page = 0;
+                }
+                Image{
+                    width: 50px;
+                    source: @image-url("../../icons/video.svg");  
+                    colorize: (active_page == 0) ? #706d6d : black;
+                }
+            }
+
+            image := SidebarButton {
+                y:70px;
+                activate => {
+                    root.active_page = 1;
+                }
+                Image{
+                    width: 50px;
+                    source: @image-url("../../icons/image.svg");  
+                    colorize: (active_page == 1) ? #706d6d : black;
+                }
+            }
+
+            audio := SidebarButton {
+                y:130px;
+                activate => {
+                    root.active_page = 2;
+                }
+                Image{
+                    width: 50px;
+                    source: @image-url("../../icons/audio.svg");  
+                    colorize: (active_page == 2) ? #706d6d : black;
+                }
+            }
+
+            settings := SidebarButton {
+                y:260px;
+                activate => {
+                    root.active_page = 3;
+                }
+                Image{
+                    width: 50px;
+                    source: @image-url("../../icons/settings.svg");  
+                    colorize: (active_page == 3) ? #706d6d : black;
+                }
+            }
+        }
+
+        //Video tab
+        VerticalLayout {
+            visible: root.active_page == 0;
+            padding-top: 15px;
+            spacing: 15px;
+            HorizontalLayout {
+                padding-top: 0;
+                Text {
+                        text: "Video";
+                        font-size: 20px;
+                        color: white;
+                    }
+            }
+            //Target Size
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text:"Target File Size: ";
+                    font-size: 15px;
+                    height: 17px;
+                }
+            }
+            HorizontalLayout {
+                spacing: 15px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    width: 50px;
+                    height: 30px;
+                    text: target_size;
+                    input-type: number;
+                    horizontal-alignment: left;
+                    //Keep target size less than 9999, anything else is proably unintentional or should be a different unit
+                    edited => {
+                        if self.text.to-float() > 9999{
+                            self.text = 9999;
+                        }
+                        target_size = self.text.to-float();
+                    }
+                    
+                }
+                
+                ComboBox {
+                    enabled: widgets-enabled;
+                    width:70px;
+                    height: 30px;
+                    current-value: size_unit;
+                    model: ["MB","GB"];
+                    selected => {
+                        size_unit = self.current-value;
+                    }
+                } 
+            }
+
+            //Input
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text:"Input File: ";
+                    font-size: 15px;
+                    height: 17px;
+                }   
+            }
+            HorizontalLayout {
+                spacing: 30px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    font-size: 14px;
+                    horizontal-alignment: left;
+                    width: 280px;
+                    height: 30px;
+                    read-only: true;
+                    placeholder-text: input_path;
+                }
+                ChooseFile {
+                    type: ChooseFileButtonType.Input;
+                    enabled: widgets-enabled;
+                }
+            }
+
+            //Output
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text:"Output File Path: ";
+                    font-size: 15px;
+                    height: 17px;
+                }    
+            }
+            HorizontalLayout {
+                spacing: 30px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    font-size: 14px;
+                    horizontal-alignment: left;
+                    width: 280px;
+                    height: 30px;
+                    read-only: true;
+                    placeholder-text: output_path;
+                }
+                ChooseFile {
+                    type: ChooseFileButtonType.Output;
+                    enabled: widgets-enabled;
+                }
+            }      
+            
+            //Compress
+            HorizontalLayout {
+                spacing: 35px;
+                //compress_status text
+                //TODO: find way to display longer messages
+                Text {
+                    color: white;
+                    text: compress_status;
+                    font-size: 15px;
+                    height: 50px;
+                    width: 200px;
+                    wrap: word-wrap;
+                    horizontal-alignment: left;
+                }
+                Spinner {
+                    indeterminate: true;
+                    visible: !widgets-enabled;
+                }
+                CompressButton{
+                    enabled: widgets-enabled;
+                }
+            }
+        }
+
+        //Image tab
+        VerticalLayout {
+            col: 1;
+            visible: root.active_page == 1;
+            padding-top: 15px;
+            spacing: 15px;
+            HorizontalLayout {
+                HorizontalLayout {
+                padding-top: 0;
+                Text {
+                        text: "Image";
+                        font-size: 20px;
+                        color: white;
+                        
+                    }
+                }
+            }
+        }
+
+        //Audio tab
+        VerticalLayout {
+            col: 1;
+            visible: root.active_page == 2;
+            padding-top: 15px;
+            spacing: 15px;
+            HorizontalLayout {
+                padding-top: 0;
+                Text {
+                    text: "Audio";
+                    font-size: 20px;
+                    color: white;
+                        
+                }
+            }
+        }
+
+        //Settings tab
+        VerticalLayout {
+            col: 1;
+            visible: root.active_page == 3;
+            padding-top: 15px;
+            spacing: 15px;
+            
+            HorizontalLayout {
+                padding-top: 0;
+                Text {
+                    text: "Settings";
+                    font-size: 20px;
+                    height: 25px;
+                    color: white;
+                }
+            }
+
+            //Default Target Size & Output name style
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text:"Target File Size: ";
+                    font-size: 15px;
+                    height: 17px;
+                }
+
+                //Rectangle for spacing
+                Rectangle {
+                    width: 80px;
+                }
+
+                Text {
+                    color: white;
+                    text:"Output Name Style: ";
+                    font-size: 15px;
+                    height: 17px;
+                }
+            }
+            HorizontalLayout {
+                spacing: 15px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    width: 50px;
+                    height: 30px;
+                    text <=> temp_default_target_size;
+                    input-type: number;
+                    horizontal-alignment: left;
+                    edited => {
+                        if self.text.to-float() > 9999{
+                            self.text = 9999;
+                        }
+                        temp_default_target_size = self.text.to-float();
+                    }
+                    
+                }
+                
+                ComboBox {
+                    enabled: widgets-enabled;
+                    width:70px;
+                    height: 30px;
+                    current-value <=> temp_default_size_unit;
+                    model: ["MB","GB"];
+                    selected => {
+                        temp_default_size_unit = self.current-value;
+                    }
+                } 
+
+                //Rectangle for spacing
+                Rectangle {
+                    width: 50px;
+                }
+                ComboBox {
+                    
+                    enabled: widgets-enabled;
+                    width:140px;
+                    height: 30px;
+                    current-value <=> temp_output_name_style;
+                    model: ["_Compressed","timestamp"];
+                    selected => {
+                        temp_output_name_style = self.current-value;
+                    }
+                } 
+            }
+
+            //Overwrite
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text:" Overwrite output.mp4:";
+                    font-size: 15px;
+                    height: 17px;
+                    width: 155px;
+                }
+                //TODO: add bool overwrite as an argument to compress_video, if true pass -y ~~~\\output.mp4 into ffmpeg
+                ToggleSwitch {
+                    checked <=> temp_overwrite;
+                    enabled: widgets-enabled;
+                    toggled => {
+                        temp_overwrite = self.checked;
+                    }
+                }
+            }
+
+            //Two-Pass Encoding:
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text:" Two-Pass Encoding:";
+                    font-size: 15px;
+                    height: 17px;
+                    width: 155px;
+                }
+                ToggleSwitch {
+                    checked <=> temp_two_pass_encoding;
+                    enabled: widgets-enabled;
+                    toggled => {
+                        temp_two_pass_encoding = self.checked;
+                    }
+                }
+            }
+
+            //Apply and cancel
+            HorizontalLayout {
+                SettingsApply {}
+                SettingsCancel {}
+            }
+        }
+    }
+} 

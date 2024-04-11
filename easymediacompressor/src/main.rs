@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs::File, io::{self, BufRead, BufReader, Error, Write}, path::Path, thread, time::Instant};
+use std::{collections::HashMap, env, fs::File, io::{self, BufRead, BufReader, Error, LineWriter, Write}, path::Path, thread, time::Instant};
 use cmd_lib::*;
 use rfd::FileDialog;
 use slint::{SharedString, Weak};
@@ -7,367 +7,11 @@ How to run:
 cd easymediacompressor
 cargo run
 
-TODO: Setting menu with config file, Move gui into a .slint file,  Compression for Audio & Images, File type conversions
+TODO: implement overwrite and two pass encoding settings, rename layouts, ex: target_file_size_box := HorizontalLayout, maybe use arrays in slint for the settings
+add more info to settings Compression for Audio & Images, File type conversions
 */
 
-slint::slint!{
-    //TODO: remove unused imports
-    import {Button, Spinner, StandardButton, VerticalBox, ComboBox, GroupBox, Switch, SpinBox, CheckBox, LineEdit, HorizontalBox,TextEdit, Slider} from "std-widgets.slint";
-    
-    //Enum for types of Choose File buttons throughout the app
-    enum ChooseFileButtonType{
-        Input,
-        Output,
-        DefaultInput,
-        DefaultOutput,
-    }
-
-    export global ButtonLogic{
-        callback choose-file-button-pressed(ChooseFileButtonType);
-        callback compress-button-pressed();
-    }
-    
-    component ChooseFile {
-        in property <ChooseFileButtonType> type;
-        in-out property <bool> enabled <=> ta.enabled;
-        Rectangle {
-            background: ta.pressed ? #555: #c0bbbb;
-            animate background { duration: 100ms;}
-            height: 25px;
-            width: 89px;
-            border-width: 2px;
-            border-radius: 10px;
-            border-color: self.background.darker(20%);
-            ta := TouchArea{
-                clicked => {ButtonLogic.choose-file-button-pressed(root.type);}
-            }
-            states [
-                active when enabled: {
-                    background:#c0bbbb;
-                }
-                inactive when !enabled: {
-                    background: #555;
-                }
-            ]
-        }
-        Text{ text: "Choose File";}
-    }
-
-    component CompressButton {
-        in-out property <bool> enabled <=> ta.enabled;
-        Rectangle {
-            background: ta.pressed ? #0a470d: #12df2d;
-            animate background { duration: 100ms;}
-            height: 25px;
-            width: 89px;
-            border-width: 2px;
-            border-radius: 10px;
-            border-color: self.background.darker(20%);
-            ta := TouchArea{
-                clicked => {
-                    ButtonLogic.compress-button-pressed();
-                }
-            }
-            states [
-            active when enabled: {
-                    background:#12df2d;
-                }
-                inactive when !enabled: {
-                    background: #0a470d;
-                }
-        ]
-        }
-        Text{ text: "Compress";}
-    }
-
-    component SidebarButton inherits Rectangle {
-        in-out property <bool> active;
-
-        height: 50px;
-        width: 50px;
-
-        callback activate;
-
-        TouchArea {
-            clicked => {root.activate()}
-        }
-
-    }
-
-
-    
-    export component App inherits Window {
-        //settings, can only change by hitting apply after changing them in the setting menu
-        in property <int> default_target_size: 25;
-        in property <string> default_size_unit: "MB";
-        in property <bool> overwrite: true;
-        in property <string> output_name_style: "_Compressed"; //"_Compressed" or "timestamp"
-        in property <bool> two_pass_encoding: false;
-
-        //properties that change at anytime during execution
-        in property <string> compress_status;
-        in property <bool> widgets-enabled: true;
-        in property <string> input_path;
-        in property <string> output_path;
-        in-out property <int> target_size: default_target_size;
-        in-out property <string> size_unit: default_size_unit;
-
-        //Current active page, 0 = video, 1 = image, 2 = audio, 3 = settings
-        out property <int> active_page:0;
-
-        width: 480px;
-        height: 330px;
-        background: #272626;
-
-
-        GridLayout {
-            spacing: 12px;
-            //Sidebar with settings menu and tabs for video, audio and images
-            Rectangle {
-                background: #555;
-                width: 59px;
-                height: 330px;
-
-                video := SidebarButton {
-                    y:10px;
-                    activate => {
-                        root.active_page = 0;
-                    }
-                    Image{
-                        width: 50px;
-                        source: @image-url("../icons/video.svg");  
-                        colorize: (active_page == 0) ? #706d6d : black;
-                    }
-
-                }
-
-                image := SidebarButton {
-                    y:70px;
-                    activate => {
-                        root.active_page = 1;
-                    }
-                    Image{
-                        width: 50px;
-                        source: @image-url("../icons/image.svg");  
-                        colorize: (active_page == 1) ? #706d6d : black;
-                    }
-
-                }
-
-                audio := SidebarButton {
-                    y:130px;
-                    activate => {
-                        root.active_page = 2;
-                    }
-                    Image{
-                        width: 50px;
-                        source: @image-url("../icons/audio.svg");  
-                        colorize: (active_page == 2) ? #706d6d : black;
-                    }
-
-                }
-
-                settings := SidebarButton {
-                    y:260px;
-                    activate => {
-                        root.active_page = 3;
-                    }
-                    Image{
-                        width: 50px;
-                        source: @image-url("../icons/settings.svg");  
-                        colorize: (active_page == 3) ? #706d6d : black;
-                    }
-
-                }
-               
-
-            }
-
-            //Video tab
-            VerticalLayout {
-                visible: root.active_page == 0;
-                padding-top: 15px;
-                spacing: 15px;
-
-                //Target Size
-                HorizontalLayout {
-                    Text {
-                        color: white;
-                        text:"Target File Size: ";
-                        font-size: 15px;
-                        height: 17px;
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 15px;
-                    LineEdit {
-                        enabled: widgets-enabled;
-                        width: 50px;
-                        height: 30px;
-                        text: target_size;
-                        input-type: number;
-                        horizontal-alignment: left;
-                        //Keep target size less than 1000, anything else is proably unintentional or should be a different unit
-                        edited => {
-                            if self.text.to-float() > 9999{
-                                self.text = 9999;
-                            }
-                            target_size = self.text.to-float();
-                        }
-                        
-                    }
-                    
-                    ComboBox {
-                        enabled: widgets-enabled;
-                        width:70px;
-                        height: 30px;
-                        current-value: size_unit;
-                        model: ["MB","GB"];
-                        selected => {
-                            size_unit = self.current-value;
-                        }
-                    } 
-                    // Text {
-                    //     color: white;
-                    //     text:" Overwrite output.mp4:";
-                    //     font-size: 15px;
-                    //     height: 17px;
-                    //     width: 155px;
-                    // }
-                    // //TODO: add bool overwrite as an argument to compress_video, if true pass -y ~~~\\output.mp4 into ffmpeg
-                    // Switch {
-                    //     enabled: widgets-enabled;
-                    //     height: 10px;
-                    // }
-                }
-
-                //Input
-                HorizontalLayout {
-                    Text {
-                        color: white;
-                        text:"Input File: ";
-                        font-size: 15px;
-                        height: 17px;
-                    }   
-                }
-                HorizontalLayout {
-                    spacing: 30px;
-                    LineEdit {
-                        enabled: widgets-enabled;
-                        font-size: 14px;
-                        horizontal-alignment: left;
-                        width: 280px;
-                        height: 30px;
-                        read-only: true;
-                        placeholder-text: input_path;
-                    }
-                    ChooseFile {
-                        type: ChooseFileButtonType.Input;
-                        enabled: widgets-enabled;
-                    }
-                }
-
-                //Output
-                HorizontalLayout {
-                    Text {
-                        color: white;
-                        text:"Output File Path: ";
-                        font-size: 15px;
-                        height: 17px;
-                    }    
-                }
-                HorizontalLayout {
-                    spacing: 30px;
-                    LineEdit {
-                        enabled: widgets-enabled;
-                        font-size: 14px;
-                        horizontal-alignment: left;
-                        width: 280px;
-                        height: 30px;
-                        read-only: true;
-                        placeholder-text: output_path;
-                    }
-                    ChooseFile {
-                        type: ChooseFileButtonType.Output;
-                        enabled: widgets-enabled;
-                    }
-                }      
-                
-                //Compress
-                HorizontalLayout {
-                    spacing: 35px;
-                    //compress_status text
-                    //TODO: find way to display longer messages
-                    Text {
-                        color: white;
-                        text: compress_status;
-                        font-size: 15px;
-                        height: 50px;
-                        width: 200px;
-                        wrap: word-wrap;
-                        horizontal-alignment: left;
-                    }
-                    Spinner {
-                        indeterminate: true;
-                        visible: !widgets-enabled;
-                    }
-                    CompressButton{
-                        enabled: widgets-enabled;
-                    }
-                }
-            }
-
-            //Image tab
-            VerticalLayout {
-                col: 1;
-                visible: root.active_page == 1;
-                padding-top: 15px;
-                spacing: 15px;
-                HorizontalLayout {
-                    Text {
-                        color: white;
-                        text: "WIP IMAGE";
-                        font-size: 15px;
-                        height: 17px;
-                    }
-                }
-            }
-
-            //Audio tab
-            VerticalLayout {
-                col: 1;
-                visible: root.active_page == 2;
-                padding-top: 15px;
-                spacing: 15px;
-                Text {
-                    color: white;
-                    text: "WIP AUDIO";
-                    font-size: 15px;
-                    height: 17px;
-                }
-            }
-
-            //Settings tab
-            VerticalLayout {
-                col: 1;
-                visible: root.active_page == 3;
-                padding-top: 15px;
-                spacing: 15px;
-                
-                HorizontalLayout {
-                    Text {
-                    color: white;
-                    text: "WIP SETTINGS";
-                    font-size: 15px;
-                    height: 17px;
-                }
-                }
-            }
-            
-        }
-    } 
-}
-
+slint::include_modules!();
 fn main() {
     let app = App::new().unwrap();
 
@@ -431,6 +75,44 @@ fn main() {
                         weak_copy.unwrap().set_compress_status(string_result.into());
                     });
             });
+        }
+    });
+
+    //Write settings to config file
+    app.global::<ButtonLogic>().on_settings_apply({
+        let weak = app.as_weak();
+        move ||{
+            let app = weak.unwrap();
+            app.set_default_target_size(app.get_temp_default_target_size().parse().unwrap());
+            app.set_default_size_unit(app.get_temp_default_size_unit());
+            app.set_overwrite(app.get_temp_overwrite());
+            app.set_output_name_style(app.get_temp_output_name_style());
+            app.set_two_pass_encoding(app.get_temp_two_pass_encoding());
+
+            //write to config file
+            //TODO: Handle errors writing to config
+            let file = File::create("..\\config.txt").unwrap();
+            let mut lw = LineWriter::new(file);
+            lw.write_all(format!("default_target_size={}\n", app.get_default_target_size()).as_bytes()).expect("Error writing to config");
+            lw.write_all(format!("default_size_unit={}\n", app.get_default_size_unit()).as_bytes()).expect("Error writing to config");
+            lw.write_all(format!("overwrite={}\n", app.get_overwrite()).as_bytes()).expect("Error writing to config");
+            lw.write_all(format!("output_name_style={}\n", app.get_output_name_style()).as_bytes()).expect("Error writing to config");
+            lw.write_all(format!("two_pass_encoding={}\n", app.get_two_pass_encoding()).as_bytes()).expect("Error writing to config");
+
+            println!("Config applied");
+        }
+    });
+
+    //Reset displayed values of settings to last apply
+    app.global::<ButtonLogic>().on_settings_cancel({    
+        let weak = app.as_weak();
+        move ||{
+            let app = weak.unwrap();
+            app.set_temp_default_target_size(SharedString::from(app.get_default_target_size().to_string()));
+            app.set_temp_default_size_unit(app.get_default_size_unit());
+            app.set_temp_overwrite(app.get_overwrite());
+            app.set_temp_output_name_style(app.get_output_name_style());
+            app.set_temp_two_pass_encoding(app.get_two_pass_encoding());
         }
     });
 

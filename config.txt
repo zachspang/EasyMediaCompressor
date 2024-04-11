@@ -1,0 +1,5 @@
+default_target_size=25
+default_size_unit=MB
+overwrite=true
+output_name_style=_Compressed
+two_pass_encoding=false
