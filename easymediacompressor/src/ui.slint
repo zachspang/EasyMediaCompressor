@@ -17,8 +17,8 @@ export component ToggleSwitch inherits Rectangle {
             border-width: 1px;
             border-radius: root.height / 2;
             border-color: self.background.darker(25%);
-            background: root.enabled ? (root.checked ? #0084ff: lightgray)  : lightgray;
-            animate background { duration: 100ms; }
+            background: root.enabled ? (root.checked ? #0084ff: lightgray) : (root.checked ? #8abceb: lightgray);
+            animate background { duration: 50ms; }
 
             bubble := Rectangle {
                 width: root.height - 8px;
@@ -27,7 +27,7 @@ export component ToggleSwitch inherits Rectangle {
                 y: 4px;
                 x: 4px + self.a * (indicator.width - bubble.width - 8px);
                 property <float> a: root.checked ? 1 : 0;
-                background: root.checked ? lightgray : (root.enabled ? #0084ff : lightgray);
+                background: root.enabled ? (root.checked ? lightgray: #0084ff) : (root.checked ? lightgray: #8abceb);
                 animate a, background { duration: 200ms; easing: ease;}
             }
         }
@@ -62,8 +62,8 @@ component ChooseFile {
     in property <ChooseFileButtonType> type;
     in-out property <bool> enabled <=> ta.enabled;
     Rectangle {
-        background: ta.pressed ? #555: #c0bbbb;
-        animate background { duration: 100ms;}
+        background: ta.enabled ? (ta.pressed ? #555: #c0bbbb) : #555;
+        animate background { duration: 50ms;}
         height: 25px;
         width: 89px;
         border-width: 2px;
@@ -72,14 +72,6 @@ component ChooseFile {
         ta := TouchArea{
             clicked => {ButtonLogic.choose-file-button-pressed(root.type);}
         }
-        states [
-            active when enabled: {
-                background:#c0bbbb;
-            }
-            inactive when !enabled: {
-                background: #555;
-            }
-        ]
     }
     Text{ text: "Choose File";}
 }
@@ -87,8 +79,8 @@ component ChooseFile {
 component CompressButton {
     in-out property <bool> enabled <=> ta.enabled;
     Rectangle {
-        background: ta.pressed ? #0a470d: #12df2d;
-        animate background { duration: 100ms;}
+        background: ta.enabled ? (ta.pressed ?#0a470d: #12df2d) :#0a470d;
+        animate background { duration: 50ms;}
         height: 25px;
         width: 89px;
         border-width: 2px;
@@ -99,14 +91,6 @@ component CompressButton {
                 ButtonLogic.compress-button-pressed();
             }
         }
-        states [
-        active when enabled: {
-                background:#12df2d;
-            }
-            inactive when !enabled: {
-                background: #0a470d;
-            }
-    ]
     }
     Text{ text: "Compress";}
 }
@@ -131,8 +115,8 @@ component SidebarButton inherits Rectangle {
 component SettingsApply {
     in-out property <bool> enabled <=> ta.enabled;
     Rectangle {
-        background: ta.pressed ? #555: #c0bbbb;
-        animate background { duration: 100ms;}
+        background: ta.enabled ? (ta.pressed ? #555: #c0bbbb) : #555;
+        animate background { duration: 50ms;}
         height: 25px;
         width: 89px;
         border-width: 2px;
@@ -141,22 +125,14 @@ component SettingsApply {
         ta := TouchArea{
             clicked => {ButtonLogic.settings-apply();}
         }
-        states [
-            active when enabled: {
-                background:#c0bbbb;
-            }
-            inactive when !enabled: {
-                background: #555;
-            }
-        ]
     }
     Text{ text: "Apply";}
 }
 component SettingsCancel {
     in-out property <bool> enabled <=> ta.enabled;
     Rectangle {
-        background: ta.pressed ? #555: #c0bbbb;
-        animate background { duration: 100ms;}
+        background: ta.enabled ? (ta.pressed ? #555: #c0bbbb) : #555;
+        animate background { duration: 50ms;}
         height: 25px;
         width: 89px;
         border-width: 2px;
@@ -165,14 +141,6 @@ component SettingsCancel {
         ta := TouchArea{
             clicked => {ButtonLogic.settings-cancel();}
         }
-        states [
-            active when enabled: {
-                background:#c0bbbb;
-            }
-            inactive when !enabled: {
-                background: #555;
-            }
-        ]
     }
     Text{ text: "Cancel";}
 }
@@ -553,8 +521,8 @@ export component App inherits Window {
 
             //Apply and cancel
             HorizontalLayout {
-                SettingsApply {}
-                SettingsCancel {}
+                SettingsApply {enabled: widgets-enabled;}
+                SettingsCancel {enabled: widgets-enabled;}
             }
         }
     }

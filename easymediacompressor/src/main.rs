@@ -7,8 +7,8 @@ How to run:
 cd easymediacompressor
 cargo run
 
-TODO: implement overwrite and two pass encoding settings, rename layouts, ex: target_file_size_box := HorizontalLayout, maybe use arrays in slint for the settings
-add more info to settings Compression for Audio & Images, File type conversions
+TODO: implement output name style setting, rename layouts, ex: target_file_size_box := HorizontalLayout, 
+maybe use arrays in slint for the settings, add more info to settings, Compression for Audio & Images, File type conversions
 */
 
 slint::include_modules!();
@@ -49,7 +49,10 @@ fn main() {
             let input_path = app.get_input_path().to_string();
             let output_path = app.get_output_path().to_string();
             let target_size = app.get_target_size() as f32;
-            let size_unit = app.get_size_unit();
+            let size_unit = app.get_size_unit().to_string();
+            let overwrite = app.get_overwrite();
+            let output_name_style = app.get_output_name_style().to_string();
+            let two_pass_encoding = app.get_two_pass_encoding();
             
             //Stop widgets from working when video is compressing and clear previous compress result
             app.set_widgets_enabled(false);
@@ -59,7 +62,7 @@ fn main() {
             let weak = app.as_weak();
             thread::spawn( move ||{
                 let weak_copy = weak.clone();
-                let compress_result = compress_video(input_path,output_path,target_size, size_unit.to_string());
+                let compress_result = compress_video(input_path,output_path,target_size, size_unit, overwrite, output_name_style, two_pass_encoding);
                 let string_result;
 
                 match compress_result {
@@ -126,7 +129,7 @@ fn main() {
     
 }
 
-fn compress_video(input_path: String, output_path: String, mut target_size: f32, size_unit: String) -> Result<(), std::io::Error> {
+fn compress_video(input_path: String, output_path: String, mut target_size: f32, size_unit: String, overwrite: bool, output_name_style: String, two_pass_encoding: bool) -> Result<(), std::io::Error> {
     /*
     TODO: Make way to compress without opening gui by dragging and dropping a file onto the exe
     let args: Vec<String> = env::args().collect();
@@ -159,14 +162,17 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
         "GB" => target_size *= 1048576 as f32,
         _ =>  return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"))
     }
-    dbg!(size_unit);
-    dbg!(target_size);
-    //create output file name, if it already exists add (i)
+    //create output file name, if it already exists and overwrite is false add (i)
     let mut output_file = format!("{}{}", &output_path, "\\output.mp4");
     let mut file_number = 1;
-    while Path::new(&output_file).exists(){
+    while Path::new(&output_file).exists() && !overwrite{
         output_file = format!("{}\\output({}).mp4", &output_path, file_number);
         file_number += 1;
+    }
+
+    let mut overwrite_flag = vec![];
+    if overwrite{
+        overwrite_flag.push("-y");
     }
 
     //timer is used to find total time elapsed
@@ -194,28 +200,27 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
         new_video_bitrate = 1.0;
     }
     
-    //This runs ffmpeg to lower the videos bitrate
-    //TODO: Currently "-y" force overwrites any file with the same name as output_file, add check that path is empty, add (1), (2) etc at the end otherwise.
-    let compress_status = run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $output_file);
-    
-    //Slower but better quality two pass encoding to compress video
-    //TODO: Add option to enable this
-    //TODO:Add check for operating system and change NUL to /dev/null for Unix based systems
-    //let pass1 = run_cmd!(ffmpeg -y -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=1 -f null NUL);
-    //let pass2 = run_cmd!(ffmpeg -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=2 -c:a aac -b:a 128k $output_file);
-    
-    println!("Total Time Elapsed: {}ms", timer.elapsed().as_millis());
-    return compress_status;
+    if two_pass_encoding{
+        //Slower but better quality two pass encoding to compress video
+        //TODO:Add check for operating system and change NUL to /dev/null for Unix based systems
+        let pass1 = run_cmd!(ffmpeg -y -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=1 -f null NUL);
+        let pass2 = run_cmd!(ffmpeg -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=2 -c:a aac -b:a 128k $output_file);
+        println!("Total Time Elapsed: {}ms", timer.elapsed().as_millis());
 
+        if pass1.is_err(){
+            return pass1;
+        }
+        else{
+            return pass2;
+        }
+    }
+    else {
+        //This runs ffmpeg to lower the videos bitrate
+        let compress_status = run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $[overwrite_flag] $output_file);
+        println!("Total Time Elapsed: {}ms", timer.elapsed().as_millis());
 
-    //returns for two pass encoding
-    // if pass1.is_err(){
-    //     return pass1;
-    // }
-    // else{
-    //     return pass2;
-    // }
-
+        return compress_status;
+    }
 }
 
 fn read_config(weak: Weak<App>)-> Result<(), std::io::Error>{
