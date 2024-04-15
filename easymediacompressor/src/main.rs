@@ -1,13 +1,14 @@
-use std::{collections::HashMap, env, fs::File, io::{self, BufRead, BufReader, Error, LineWriter, Write}, path::Path, thread, time::Instant};
+use std::{collections::HashMap, env, fs::File, io::{self, BufRead, BufReader, Error, LineWriter, Write}, path::Path, thread};
 use cmd_lib::*;
 use rfd::FileDialog;
+use chrono::prelude::*;
 use slint::{SharedString, Weak};
 /*Notes
 How to run: 
 cd easymediacompressor
 cargo run
 
-TODO: implement output name style setting, rename layouts, ex: target_file_size_box := HorizontalLayout, 
+TODO: rename layouts, ex: target_file_size_box := HorizontalLayout, make window scale with different sizes
 maybe use arrays in slint for the settings, add more info to settings, Compression for Audio & Images, File type conversions
 */
 
@@ -138,6 +139,9 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
     let output_path = &args[2];
     let target_size: f32 = args[3].parse().expect("Invalid target size");
     */
+
+    //timer is used to track total time elapsed during compression and for the timestamp name style
+    let timer: DateTime<Local> = Local::now();
     println!("\nStarting compression");
     println!("input_path = {}", input_path);
     println!("output_path = {}", output_path);
@@ -162,11 +166,42 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
         "GB" => target_size *= 1048576 as f32,
         _ =>  return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"))
     }
-    //create output file name, if it already exists and overwrite is false add (i)
-    let mut output_file = format!("{}{}", &output_path, "\\output.mp4");
+
+    //create output file name
+    let mut output_file;
+    if output_name_style == "_Compressed"{
+        //add the name of the input file to the end of the output path
+        output_file = format!("{}{}", &output_path, &input_path[input_path.rfind("\\").unwrap()..input_path.len()]);
+        //add _Compressed before the file extension
+        output_file.insert_str(output_file.rfind(".").unwrap(), "_Compressed");
+    }
+    else if output_name_style == "timestamp" {
+        //add the name of the input file to the end of the output path
+        output_file = format!("{}{}", &output_path, &input_path[input_path.rfind("\\").unwrap()..input_path.len()]);
+        //get timestamp
+        let mut timestamp = timer.to_rfc3339_opts(SecondsFormat::Secs, false).to_owned();
+
+        //remove utc offset from timestmap
+        timestamp.truncate(timestamp.len() - 6);
+        
+        timestamp = timestamp.replace(':', ".");
+
+        //replace from start of file name to file extension with timestamp
+        output_file.replace_range(output_file.rfind("\\").unwrap() + 1..output_file.rfind(".").unwrap(), &timestamp);
+    }
+    else{
+        output_file = format!("{}{}", &output_path, "\\output.mp4");
+    }
+    
     let mut file_number = 1;
-    while Path::new(&output_file).exists() && !overwrite{
-        output_file = format!("{}\\output({}).mp4", &output_path, file_number);
+    //if file exist and overwrite is false, add (i) to the file name, i in incremented untill a file with the name doesnt exist
+    while Path::new(&output_file.as_os_str()).exists() && !overwrite{
+        //add the parentheses on the first loop
+        if file_number == 1{
+            output_file.insert_str(output_file.rfind(".").unwrap(), "( )")
+        }
+
+        output_file.replace_range(output_file.rfind(")").unwrap() - 1..output_file.rfind(")").unwrap(), &file_number.to_string());
         file_number += 1;
     }
 
@@ -174,9 +209,6 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
     if overwrite{
         overwrite_flag.push("-y");
     }
-
-    //timer is used to find total time elapsed
-    let timer = Instant::now();
 
     //TODO: Error handling if one of these doesnt return
     let duration: f32 = run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 $input_path).unwrap().trim().parse().expect("Invalid duration");
@@ -205,8 +237,7 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
         //TODO:Add check for operating system and change NUL to /dev/null for Unix based systems
         let pass1 = run_cmd!(ffmpeg -y -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=1 -f null NUL);
         let pass2 = run_cmd!(ffmpeg -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=2 -c:a aac -b:a 128k $output_file);
-        println!("Total Time Elapsed: {}ms", timer.elapsed().as_millis());
-
+        println!("Total Time Elapsed: {}ms", timer.signed_duration_since(Local::now()));
         if pass1.is_err(){
             return pass1;
         }
@@ -217,8 +248,7 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
     else {
         //This runs ffmpeg to lower the videos bitrate
         let compress_status = run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $[overwrite_flag] $output_file);
-        println!("Total Time Elapsed: {}ms", timer.elapsed().as_millis());
-
+        println!("Total Time Elapsed: {}ms", Local::now().signed_duration_since(timer).num_milliseconds());
         return compress_status;
     }
 }
