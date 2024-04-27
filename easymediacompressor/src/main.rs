@@ -8,8 +8,7 @@ How to run:
 cd easymediacompressor
 cargo run
 
-TODO: rename layouts, ex: target_file_size_box := HorizontalLayout, make window scale with different sizes
-maybe use arrays in slint for the settings, add more info to settings, Compression for Audio & Images, File type conversions
+TODO: add more info to settings, Compression for Audio & Images, File type conversions
 */
 
 slint::include_modules!();

@@ -171,18 +171,23 @@ export component App inherits Window {
     //Current active page, 0 = video, 1 = image, 2 = audio, 3 = settings
     out property <int> active_page:0;
 
-    width: 480px;
-    height: 330px;
+    min-width: 480px;
+    preferred-width: 480px;
+    min-height: 400px;
+    preferred-height: 400px;
+    title: "EasyMediaCompressor";
     background: #272626;
 
 
     GridLayout {
         spacing: 12px;
-        //Sidebar with settings menu and tabs for video, audio and images
+        padding-right: 40px;
+        //Sidebar with buttons to change tabs
         Rectangle {
             background: #555;
-            width: 59px;
-            height: 330px;
+            max-width: 59px;
+            min-width: 59px;
+            min-height: 330px;
 
             video := SidebarButton {
                 y:10px;
@@ -190,7 +195,7 @@ export component App inherits Window {
                     root.active_page = 0;
                 }
                 Image{
-                    width: 50px;
+                    min-width: 50px;
                     source: @image-url("../../icons/video.svg");  
                     colorize: (active_page == 0) ? #706d6d : black;
                 }
@@ -202,7 +207,7 @@ export component App inherits Window {
                     root.active_page = 1;
                 }
                 Image{
-                    width: 50px;
+                    min-width: 50px;
                     source: @image-url("../../icons/image.svg");  
                     colorize: (active_page == 1) ? #706d6d : black;
                 }
@@ -214,19 +219,19 @@ export component App inherits Window {
                     root.active_page = 2;
                 }
                 Image{
-                    width: 50px;
+                    min-width: 50px;
                     source: @image-url("../../icons/audio.svg");  
                     colorize: (active_page == 2) ? #706d6d : black;
                 }
             }
 
             settings := SidebarButton {
-                y:260px;
+                y: root.height - 70px;
                 activate => {
                     root.active_page = 3;
                 }
                 Image{
-                    width: 50px;
+                    min-width: 50px;
                     source: @image-url("../../icons/settings.svg");  
                     colorize: (active_page == 3) ? #706d6d : black;
                 }
@@ -235,6 +240,7 @@ export component App inherits Window {
 
         //Video tab
         VerticalLayout {
+            alignment: start;
             visible: root.active_page == 0;
             padding-top: 15px;
             spacing: 15px;
@@ -252,14 +258,14 @@ export component App inherits Window {
                     color: white;
                     text:"Target File Size: ";
                     font-size: 15px;
-                    height: 17px;
+                    min-height: 17px;
                 }
             }
             HorizontalLayout {
                 spacing: 15px;
                 LineEdit {
                     enabled: widgets-enabled;
-                    width: 50px;
+                    min-width: 50px;
                     height: 30px;
                     text: target_size;
                     input-type: number;
@@ -275,8 +281,9 @@ export component App inherits Window {
                 }
                 
                 ComboBox {
+                    horizontal-stretch: 0;
                     enabled: widgets-enabled;
-                    width:70px;
+                    min-width:70px;
                     height: 30px;
                     current-value: size_unit;
                     model: ["MB","GB"];
@@ -292,7 +299,7 @@ export component App inherits Window {
                     color: white;
                     text:"Input File: ";
                     font-size: 15px;
-                    height: 17px;
+                    min-height: 17px;
                 }   
             }
             HorizontalLayout {
@@ -301,7 +308,7 @@ export component App inherits Window {
                     enabled: widgets-enabled;
                     font-size: 14px;
                     horizontal-alignment: left;
-                    width: 280px;
+                    min-width: 280px;
                     height: 30px;
                     read-only: true;
                     placeholder-text: input_path;
@@ -318,7 +325,7 @@ export component App inherits Window {
                     color: white;
                     text:"Output File Path: ";
                     font-size: 15px;
-                    height: 17px;
+                    min-height: 17px;
                 }    
             }
             HorizontalLayout {
@@ -327,7 +334,7 @@ export component App inherits Window {
                     enabled: widgets-enabled;
                     font-size: 14px;
                     horizontal-alignment: left;
-                    width: 280px;
+                    min-width: 280px;
                     height: 30px;
                     read-only: true;
                     placeholder-text: output_path;
@@ -341,6 +348,7 @@ export component App inherits Window {
             //Compress
             HorizontalLayout {
                 spacing: 35px;
+                padding-top: 50px;
                 //compress_status text
                 //TODO: find way to display longer messages
                 Text {
@@ -348,7 +356,7 @@ export component App inherits Window {
                     text: compress_status;
                     font-size: 15px;
                     height: 50px;
-                    width: 200px;
+                    min-width: root.width - 300px;
                     wrap: word-wrap;
                     horizontal-alignment: left;
                 }
@@ -427,7 +435,7 @@ export component App inherits Window {
 
                 Text {
                     color: white;
-                    text:"Output Name Style: ";
+                    text:"                Output Name Style: ";
                     font-size: 15px;
                     height: 17px;
                 }
@@ -436,7 +444,8 @@ export component App inherits Window {
                 spacing: 15px;
                 LineEdit {
                     enabled: widgets-enabled;
-                    width: 50px;
+                    min-width: 50px;
+                    //max-width: root.width/3;
                     height: 30px;
                     text <=> temp_default_target_size;
                     input-type: number;
@@ -451,8 +460,9 @@ export component App inherits Window {
                 }
                 
                 ComboBox {
+                    horizontal-stretch: 0;
                     enabled: widgets-enabled;
-                    width:70px;
+                    min-width:70px;
                     height: 30px;
                     current-value <=> temp_default_size_unit;
                     model: ["MB","GB"];
@@ -463,12 +473,13 @@ export component App inherits Window {
 
                 //Rectangle for spacing
                 Rectangle {
+                    horizontal-stretch: 0;
                     width: 50px;
                 }
                 ComboBox {
-                    
+                    //horizontal-stretch: 0;
                     enabled: widgets-enabled;
-                    width:140px;
+                    min-width:140px;
                     height: 30px;
                     current-value <=> temp_output_name_style;
                     model: ["_Compressed","timestamp"];
@@ -480,12 +491,13 @@ export component App inherits Window {
 
             //Overwrite
             HorizontalLayout {
+                alignment: start;
                 Text {
                     color: white;
                     text:" Overwrite output.mp4:";
                     font-size: 15px;
                     height: 17px;
-                    width: 155px;
+                    min-width: 155px;
                 }
                 //TODO: add bool overwrite as an argument to compress_video, if true pass -y ~~~\\output.mp4 into ffmpeg
                 ToggleSwitch {
@@ -499,12 +511,13 @@ export component App inherits Window {
 
             //Two-Pass Encoding:
             HorizontalLayout {
+                alignment: start;
                 Text {
                     color: white;
                     text:" Two-Pass Encoding:";
                     font-size: 15px;
                     height: 17px;
-                    width: 155px;
+                    min-width: 155px;
                 }
                 ToggleSwitch {
                     checked <=> temp_two_pass_encoding;
@@ -516,9 +529,15 @@ export component App inherits Window {
             }
 
             //Apply and cancel
-            HorizontalLayout {
-                SettingsApply {enabled: widgets-enabled;}
-                SettingsCancel {enabled: widgets-enabled;}
+            Rectangle {
+                SettingsApply {
+                    x:root.width - 280px;
+                    y:root.height - 250px; 
+                    enabled: widgets-enabled;}
+                SettingsCancel {
+                    x:root.width - 160px;
+                    y:root.height - 250px;
+                    enabled: widgets-enabled;}
             }
         }
     }
