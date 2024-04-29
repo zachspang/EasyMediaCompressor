@@ -1,8 +1,17 @@
-use std::{collections::HashMap, env, fs::File, io::{self, BufRead, BufReader, Error, LineWriter, Write}, path::Path, thread};
+#![windows_subsystem = "windows"]
+use std::{
+    collections::HashMap,
+    env,
+    fs::File,
+    io::{ self, BufRead, BufReader, Error, LineWriter, Write },
+    path::Path,
+    thread,
+};
 use cmd_lib::*;
 use rfd::FileDialog;
 use chrono::prelude::*;
-use slint::{SharedString, Weak};
+use slint::{ SharedString, Weak };
+
 /*Notes
 How to run: 
 cd easymediacompressor
@@ -18,33 +27,32 @@ fn main() {
     //Opens system file dialog to select a file path
     app.global::<ButtonLogic>().on_choose_file_button_pressed({
         let weak = app.as_weak();
-        move |value|{
+        move |value| {
             let app = weak.unwrap();
-            if value == ChooseFileButtonType::Input{
-                let files = FileDialog::new()
-                .add_filter("video", &["mp4"])
-                .pick_file();
-                if files.is_some(){
-                    app.set_input_path(SharedString::from(files.unwrap().as_os_str().to_str().unwrap()))
+            if value == ChooseFileButtonType::Input {
+                let files = FileDialog::new().add_filter("video", &["mp4"]).pick_file();
+                if files.is_some() {
+                    app.set_input_path(
+                        SharedString::from(files.unwrap().as_os_str().to_str().unwrap())
+                    )
                 }
-            }
-            else if value == ChooseFileButtonType::Output{
-                let files = FileDialog::new()
-                .add_filter("video", &["mp4"])
-                .pick_folder();
-                if files.is_some(){
-                    app.set_output_path(SharedString::from(files.unwrap().as_os_str().to_str().unwrap()))
+            } else if value == ChooseFileButtonType::Output {
+                let files = FileDialog::new().add_filter("video", &["mp4"]).pick_folder();
+                if files.is_some() {
+                    app.set_output_path(
+                        SharedString::from(files.unwrap().as_os_str().to_str().unwrap())
+                    )
                 }
             }
             //TODO: else if value == default_input/output for settings menu
         }
     });
 
-    //Calls compress_video when the compress button is pressed. 
+    //Calls compress_video when the compress button is pressed.
     //compress_video is called on a new thread so the gui still responds while video is compressing
     app.global::<ButtonLogic>().on_compress_button_pressed({
         let weak = app.as_weak();
-        move ||{
+        move || {
             let app = weak.unwrap();
             let input_path = app.get_input_path().to_string();
             let output_path = app.get_output_path().to_string();
@@ -53,30 +61,39 @@ fn main() {
             let overwrite = app.get_overwrite();
             let output_name_style = app.get_output_name_style().to_string();
             let two_pass_encoding = app.get_two_pass_encoding();
-            
+
             //Stop widgets from working when video is compressing and clear previous compress result
             app.set_widgets_enabled(false);
             app.set_compress_status("".into());
 
             //We need to make a new weak pointer to app since the other one is captured by the outer closure, there might be a better way to deal with this
             let weak = app.as_weak();
-            thread::spawn( move ||{
+            thread::spawn(move || {
                 let weak_copy = weak.clone();
-                let compress_result = compress_video(input_path,output_path,target_size, size_unit, overwrite, output_name_style, two_pass_encoding);
+                let compress_result = compress_video(
+                    input_path,
+                    output_path,
+                    target_size,
+                    size_unit,
+                    overwrite,
+                    output_name_style,
+                    two_pass_encoding
+                );
                 let string_result;
 
                 match compress_result {
-                    Err(e) =>string_result = format!("Compression Error: {e}"),
+                    Err(e) => {
+                        string_result = format!("Compression Error: {e}");
+                    }
                     Ok(_) => {
                         string_result = "Compression Done!".to_string();
                     }
                 }
 
-                let _ = slint::invoke_from_event_loop(
-                    move || {
-                        weak_copy.unwrap().set_widgets_enabled(true);
-                        weak_copy.unwrap().set_compress_status(string_result.into());
-                    });
+                let _ = slint::invoke_from_event_loop(move || {
+                    weak_copy.unwrap().set_widgets_enabled(true);
+                    weak_copy.unwrap().set_compress_status(string_result.into());
+                });
             });
         }
     });
@@ -84,7 +101,7 @@ fn main() {
     //Write settings to config file
     app.global::<ButtonLogic>().on_settings_apply({
         let weak = app.as_weak();
-        move ||{
+        move || {
             let app = weak.unwrap();
             app.set_default_target_size(app.get_temp_default_target_size().parse().unwrap());
             app.set_default_size_unit(app.get_temp_default_size_unit());
@@ -96,22 +113,34 @@ fn main() {
             //TODO: Handle errors writing to config
             let file = File::create("..\\config.txt").unwrap();
             let mut lw = LineWriter::new(file);
-            lw.write_all(format!("default_target_size={}\n", app.get_default_target_size()).as_bytes()).expect("Error writing to config");
-            lw.write_all(format!("default_size_unit={}\n", app.get_default_size_unit()).as_bytes()).expect("Error writing to config");
-            lw.write_all(format!("overwrite={}\n", app.get_overwrite()).as_bytes()).expect("Error writing to config");
-            lw.write_all(format!("output_name_style={}\n", app.get_output_name_style()).as_bytes()).expect("Error writing to config");
-            lw.write_all(format!("two_pass_encoding={}\n", app.get_two_pass_encoding()).as_bytes()).expect("Error writing to config");
+            lw.write_all(
+                format!("default_target_size={}\n", app.get_default_target_size()).as_bytes()
+            ).expect("Error writing to config");
+            lw.write_all(
+                format!("default_size_unit={}\n", app.get_default_size_unit()).as_bytes()
+            ).expect("Error writing to config");
+            lw.write_all(format!("overwrite={}\n", app.get_overwrite()).as_bytes()).expect(
+                "Error writing to config"
+            );
+            lw.write_all(
+                format!("output_name_style={}\n", app.get_output_name_style()).as_bytes()
+            ).expect("Error writing to config");
+            lw.write_all(
+                format!("two_pass_encoding={}\n", app.get_two_pass_encoding()).as_bytes()
+            ).expect("Error writing to config");
 
             println!("Config applied");
         }
     });
 
     //Reset displayed values of settings to last apply
-    app.global::<ButtonLogic>().on_settings_cancel({    
+    app.global::<ButtonLogic>().on_settings_cancel({
         let weak = app.as_weak();
-        move ||{
+        move || {
             let app = weak.unwrap();
-            app.set_temp_default_target_size(SharedString::from(app.get_default_target_size().to_string()));
+            app.set_temp_default_target_size(
+                SharedString::from(app.get_default_target_size().to_string())
+            );
             app.set_temp_default_size_unit(app.get_default_size_unit());
             app.set_temp_overwrite(app.get_overwrite());
             app.set_temp_output_name_style(app.get_output_name_style());
@@ -120,16 +149,23 @@ fn main() {
     });
 
     //initialize variables with config file
-    match read_config(app.as_weak()){
+    match read_config(app.as_weak()) {
         Err(e) => println!("Config error {}", e),
-        Ok(_) => println!("Config successfully read")
+        Ok(_) => println!("Config successfully read"),
     }
 
     app.run().unwrap();
-    
 }
 
-fn compress_video(input_path: String, output_path: String, mut target_size: f32, size_unit: String, overwrite: bool, output_name_style: String, two_pass_encoding: bool) -> Result<(), std::io::Error> {
+fn compress_video(
+    input_path: String,
+    output_path: String,
+    mut target_size: f32,
+    size_unit: String,
+    overwrite: bool,
+    output_name_style: String,
+    two_pass_encoding: bool
+) -> Result<(), std::io::Error> {
     /*
     TODO: Make way to compress without opening gui by dragging and dropping a file onto the exe
     let args: Vec<String> = env::args().collect();
@@ -147,162 +183,200 @@ fn compress_video(input_path: String, output_path: String, mut target_size: f32,
     println!("target_size = {} MB", target_size);
 
     //input validation
-    if !Path::new(&input_path).exists(){
+    if !Path::new(&input_path).exists() {
         return Err(Error::new(io::ErrorKind::InvalidInput, "The input file doesn't exist"));
     }
 
-    if !Path::new(&output_path).exists(){
+    if !Path::new(&output_path).exists() {
         return Err(Error::new(io::ErrorKind::InvalidInput, "The output path doesn't exist"));
     }
 
-    if target_size > 9999 as f32 || target_size < 1 as f32{
+    if target_size > (9999 as f32) || target_size < (1 as f32) {
         return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid target size"));
     }
 
     //Turn target size into kB
-    match size_unit.as_str(){
-        "MB" => target_size *= 1024 as f32,
-        "GB" => target_size *= 1048576 as f32,
-        _ =>  return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"))
+    match size_unit.as_str() {
+        "MB" => {
+            target_size *= 1024 as f32;
+        }
+        "GB" => {
+            target_size *= 1048576 as f32;
+        }
+        _ => {
+            return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"));
+        }
     }
 
     //create output file name
     let mut output_file;
-    if output_name_style == "_Compressed"{
+    if output_name_style == "_Compressed" {
         //add the name of the input file to the end of the output path
-        output_file = format!("{}{}", &output_path, &input_path[input_path.rfind("\\").unwrap()..input_path.len()]);
+        output_file = format!(
+            "{}{}",
+            &output_path,
+            &input_path[input_path.rfind("\\").unwrap()..input_path.len()]
+        );
         //add _Compressed before the file extension
         output_file.insert_str(output_file.rfind(".").unwrap(), "_Compressed");
-    }
-    else if output_name_style == "timestamp" {
+    } else if output_name_style == "timestamp" {
         //add the name of the input file to the end of the output path
-        output_file = format!("{}{}", &output_path, &input_path[input_path.rfind("\\").unwrap()..input_path.len()]);
+        output_file = format!(
+            "{}{}",
+            &output_path,
+            &input_path[input_path.rfind("\\").unwrap()..input_path.len()]
+        );
         //get timestamp
         let mut timestamp = timer.to_rfc3339_opts(SecondsFormat::Secs, false).to_owned();
 
         //remove utc offset from timestmap
         timestamp.truncate(timestamp.len() - 6);
-        
+
         timestamp = timestamp.replace(':', ".");
 
         //replace from start of file name to file extension with timestamp
-        output_file.replace_range(output_file.rfind("\\").unwrap() + 1..output_file.rfind(".").unwrap(), &timestamp);
-    }
-    else{
+        output_file.replace_range(
+            output_file.rfind("\\").unwrap() + 1..output_file.rfind(".").unwrap(),
+            &timestamp
+        );
+    } else {
         output_file = format!("{}{}", &output_path, "\\output.mp4");
     }
-    
+
     let mut file_number = 1;
     //if file exist and overwrite is false, add (i) to the file name, i in incremented untill a file with the name doesnt exist
-    while Path::new(&output_file.as_os_str()).exists() && !overwrite{
+    while Path::new(&output_file.as_os_str()).exists() && !overwrite {
         //add the parentheses on the first loop
-        if file_number == 1{
-            output_file.insert_str(output_file.rfind(".").unwrap(), "( )")
+        if file_number == 1 {
+            output_file.insert_str(output_file.rfind(".").unwrap(), "( )");
         }
 
-        output_file.replace_range(output_file.rfind(")").unwrap() - 1..output_file.rfind(")").unwrap(), &file_number.to_string());
+        output_file.replace_range(
+            output_file.rfind(")").unwrap() - 1..output_file.rfind(")").unwrap(),
+            &file_number.to_string()
+        );
         file_number += 1;
     }
 
     let mut overwrite_flag = vec![];
-    if overwrite{
+    if overwrite {
         overwrite_flag.push("-y");
     }
 
     //TODO: Error handling if one of these doesnt return
-    let duration: f32 = run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 $input_path).unwrap().trim().parse().expect("Invalid duration");
-    let video_bitrate: f32 = run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 $input_path).unwrap().trim().parse().expect("Invalid video bitrate");
-  
+    let duration: f32 =
+        run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 $input_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .expect("Invalid duration");
+    let video_bitrate: f32 =
+        run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 $input_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .expect("Invalid video bitrate");
+
     println!("duration = {} seconds", duration);
 
-    //Calculate new bitrate in kB/s with space for 16 kB/s for audio to reach target file size 
-    let mut new_video_bitrate = (target_size / duration) - 16 as f32;
+    //Calculate new bitrate in kB/s with space for 16 kB/s for audio to reach target file size
+    let mut new_video_bitrate = target_size / duration - (16 as f32);
 
-    println!("old_bitrate = {} kB/s", video_bitrate / 8192 as f32);
+    println!("old_bitrate = {} kB/s", video_bitrate / (8192 as f32));
     println!("new_bitrate = {} kB/s", new_video_bitrate);
-    
+
     //Make sure the new bitrate is lower than the old bitrate
-    if new_video_bitrate > (video_bitrate / 8192 as f32){
-        return Err(Error::new(io::ErrorKind::InvalidInput, "The video's current filesize is too close to the target. Please try a smaller target."));
+    if new_video_bitrate > video_bitrate / (8192 as f32) {
+        return Err(
+            Error::new(
+                io::ErrorKind::InvalidInput,
+                "The video's current filesize is too close to the target. Please try a smaller target."
+            )
+        );
     }
 
     //If the user inputs a really small size the bitrate can end up negative since we leave 16kB/s for audio.
     if new_video_bitrate < 1.0 {
         new_video_bitrate = 1.0;
     }
-    
-    if two_pass_encoding{
+
+    if two_pass_encoding {
         //Slower but better quality two pass encoding to compress video
         //TODO:Add check for operating system and change NUL to /dev/null for Unix based systems
-        let pass1 = run_cmd!(ffmpeg -y -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=1 -f null NUL);
-        let pass2 = run_cmd!(ffmpeg -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=2 -c:a aac -b:a 128k $output_file);
+        let pass1 =
+            run_cmd!(ffmpeg -y -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=1 -f null NUL);
+        let pass2 =
+            run_cmd!(ffmpeg -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=2 -c:a aac -b:a 128k $output_file);
         println!("Total Time Elapsed: {}ms", timer.signed_duration_since(Local::now()));
-        if pass1.is_err(){
+        if pass1.is_err() {
             return pass1;
-        }
-        else{
+        } else {
             return pass2;
         }
-    }
-    else {
+    } else {
         //This runs ffmpeg to lower the videos bitrate
-        let compress_status = run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $[overwrite_flag] $output_file);
-        println!("Total Time Elapsed: {}ms", Local::now().signed_duration_since(timer).num_milliseconds());
+        let compress_status =
+            run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $[overwrite_flag] $output_file);
+        println!(
+            "Total Time Elapsed: {}ms",
+            Local::now().signed_duration_since(timer).num_milliseconds()
+        );
         return compress_status;
     }
 }
 
-fn read_config(weak: Weak<App>)-> Result<(), std::io::Error>{
+fn read_config(weak: Weak<App>) -> Result<(), std::io::Error> {
     let app = weak.unwrap();
     let file = File::open("..\\config.txt")?;
     let buffer = BufReader::new(file);
-    let mut config_map:HashMap<String, String> = HashMap::new();
-    let mut split_vector:Vec<String>;
+    let mut config_map: HashMap<String, String> = HashMap::new();
+    let mut split_vector: Vec<String>;
 
     //For each line in the config map a key to value
-    for line in buffer.lines(){   
+    for line in buffer.lines() {
         split_vector = line?.split("=").map(String::from).collect();
-        config_map.insert(split_vector.get(0).unwrap_or(&"".to_string()).trim().to_owned(), split_vector.get(1).unwrap_or(&"".to_string()).trim().to_owned());
+        config_map.insert(
+            split_vector.get(0).unwrap_or(&"".to_string()).trim().to_owned(),
+            split_vector.get(1).unwrap_or(&"".to_string()).trim().to_owned()
+        );
     }
-    
+
     //if a key is in the map and the value is valid change the setting in the app
-    if config_map.contains_key("default_target_size"){
+    if config_map.contains_key("default_target_size") {
         let value = config_map.get("default_target_size").unwrap().parse::<i32>().unwrap();
-        if value < 9999 || value > 1{
+        if value < 9999 || value > 1 {
             app.set_default_target_size(value);
         }
     }
 
-    if config_map.contains_key("default_size_unit"){
+    if config_map.contains_key("default_size_unit") {
         let value = config_map.get("default_size_unit").unwrap();
-        if value == "MB" || value == "GB"{
+        if value == "MB" || value == "GB" {
             app.set_default_size_unit(SharedString::from(value));
         }
     }
 
-    if config_map.contains_key("overwrite"){
+    if config_map.contains_key("overwrite") {
         let value = config_map.get("overwrite").unwrap();
-        if value == "true"{
+        if value == "true" {
             app.set_overwrite(true);
-        }
-        else {
+        } else {
             app.set_overwrite(false);
         }
     }
-    
-    if config_map.contains_key("output_name_style"){
+
+    if config_map.contains_key("output_name_style") {
         let value = config_map.get("output_name_style").unwrap();
-        if value == "_Compressed" || value == "timestamp"{
+        if value == "_Compressed" || value == "timestamp" {
             app.set_output_name_style(SharedString::from(value));
         }
     }
 
-    if config_map.contains_key("two_pass_encoding"){
+    if config_map.contains_key("two_pass_encoding") {
         let value = config_map.get("two_pass_encoding").unwrap();
-        if value == "true"{
+        if value == "true" {
             app.set_two_pass_encoding(true);
-        }
-        else {
+        } else {
             app.set_two_pass_encoding(false);
         }
     }
