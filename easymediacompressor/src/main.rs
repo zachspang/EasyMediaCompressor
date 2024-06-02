@@ -4,21 +4,20 @@ use std::{
     env,
     fs::File,
     io::{ self, BufRead, BufReader, Error, LineWriter, Write },
+    os::windows::process::CommandExt,
     path::Path,
+    process::Command,
+    str::from_utf8,
     thread,
 };
-use cmd_lib::*;
 use rfd::FileDialog;
 use chrono::prelude::*;
 use slint::{ SharedString, Weak };
 
 /*Notes
-How to run: 
-cd easymediacompressor
-cargo run
-
-TODO: add more info to settings, Compression for Audio & Images, File type conversions
+TODO: add more info to settings, Compression for Audio & Images, File type conversions, make changes to run on unix based systems
 */
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 slint::include_modules!();
 fn main() {
@@ -165,7 +164,7 @@ fn compress_video(
     overwrite: bool,
     output_name_style: String,
     two_pass_encoding: bool
-) -> Result<(), std::io::Error> {
+) -> Result<(), Error> {
     /*
     TODO: Make way to compress without opening gui by dragging and dropping a file onto the exe
     let args: Vec<String> = env::args().collect();
@@ -244,8 +243,8 @@ fn compress_video(
     }
 
     let mut file_number = 1;
-    //if file exist and overwrite is false, add (i) to the file name, i in incremented untill a file with the name doesnt exist
-    while Path::new(&output_file.as_os_str()).exists() && !overwrite {
+    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented untill a file with the name doesnt exist
+    while Path::new(&output_file.as_str()).exists() && !overwrite {
         //add the parentheses on the first loop
         if file_number == 1 {
             output_file.insert_str(output_file.rfind(".").unwrap(), "( )");
@@ -258,24 +257,52 @@ fn compress_video(
         file_number += 1;
     }
 
-    let mut overwrite_flag = vec![];
-    if overwrite {
-        overwrite_flag.push("-y");
-    }
-
     //TODO: Error handling if one of these doesnt return
-    let duration: f32 =
-        run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 $input_path)
-            .unwrap()
-            .trim()
-            .parse()
-            .expect("Invalid duration");
-    let video_bitrate: f32 =
-        run_fun!(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 $input_path)
-            .unwrap()
-            .trim()
-            .parse()
-            .expect("Invalid video bitrate");
+    let duration: f32 = from_utf8(
+        Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                &input_path,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("Invalid duration")
+            .stdout.as_ref()
+    )
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    dbg!(&duration);
+    let video_bitrate: f32 = from_utf8(
+        Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=bit_rate",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                &input_path,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("Invalid video bitrate")
+            .stdout.as_ref()
+    )
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
 
     println!("duration = {} seconds", duration);
 
@@ -303,29 +330,87 @@ fn compress_video(
     if two_pass_encoding {
         //Slower but better quality two pass encoding to compress video
         //TODO:Add check for operating system and change NUL to /dev/null for Unix based systems
-        let pass1 =
-            run_cmd!(ffmpeg -y -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=1 -f null NUL);
-        let pass2 =
-            run_cmd!(ffmpeg -i $input_path -c:v libx265 -b:v ${new_video_bitrate}KiB -x265-params pass=2 -c:a aac -b:a 128k $output_file);
+        let pass1 = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "fatal",
+                "-y",
+                "-i",
+                &input_path,
+                "-c:v",
+                "libx265",
+                "-b:v",
+                &format!("{new_video_bitrate}KiB"),
+                "-x265-params",
+                "log-level=0:pass=1",
+                "-f",
+                "null",
+                "NUL",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        let pass2 = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "fatal",
+                "-i",
+                &input_path,
+                "-c:v",
+                "libx265",
+                "-b:v",
+                &format!("{new_video_bitrate}KiB"),
+                "-x265-params",
+                "log-level=0:pass=2",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-y",
+                &output_file,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
         println!("Total Time Elapsed: {}ms", timer.signed_duration_since(Local::now()));
-        if pass1.is_err() {
-            return pass1;
+        if output_contains_error(&pass1) {
+            return get_output_error(pass1);
+        } else if output_contains_error(&pass2) {
+            return get_output_error(pass2);
         } else {
-            return pass2;
+            return Ok(());
         }
     } else {
         //This runs ffmpeg to lower the videos bitrate
-        let compress_status =
-            run_cmd!(ffmpeg -v error -i $input_path -b:v ${new_video_bitrate}KiB -bufsize ${new_video_bitrate}KiB $[overwrite_flag] $output_file);
+        let compress_status = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "fatal",
+                "-i",
+                &input_path,
+                "-b:v",
+                &format!("{new_video_bitrate}KiB"),
+                "-bufsize",
+                &format!("{new_video_bitrate}KiB"),
+                "-y",
+                &output_file,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
         println!(
             "Total Time Elapsed: {}ms",
             Local::now().signed_duration_since(timer).num_milliseconds()
         );
-        return compress_status;
+        dbg!(&compress_status);
+        if output_contains_error(&compress_status) {
+            return get_output_error(compress_status);
+        } else {
+            return Ok(());
+        }
     }
 }
 
-fn read_config(weak: Weak<App>) -> Result<(), std::io::Error> {
+fn read_config(weak: Weak<App>) -> Result<(), Error> {
     let app = weak.unwrap();
     let file = File::open("..\\config.txt")?;
     let buffer = BufReader::new(file);
@@ -382,4 +467,18 @@ fn read_config(weak: Weak<App>) -> Result<(), std::io::Error> {
     }
 
     Ok(())
+}
+
+fn output_contains_error(result: &Result<std::process::Output, Error>) -> bool {
+    let stderr = result.as_ref().unwrap().clone().stderr;
+    if String::from_utf8(stderr).unwrap() == "" {
+        return false;
+    }
+    return true;
+}
+
+fn get_output_error(result: Result<std::process::Output, Error>) -> Result<(), Error> {
+    return Err(
+        Error::new(io::ErrorKind::Other, String::from_utf8(result.unwrap().stderr).unwrap())
+    );
 }
