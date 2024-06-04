@@ -447,6 +447,22 @@ export component App inherits Window {
                     text: "Default Target File Size: ";
                     font-size: 15px;
                     height: 17px;
+                    defaultTargetSizeTooltip := TouchArea { }
+
+                    Rectangle {
+                        width: 300px;
+                        x: 10px;
+                        y: -12px;
+                        background: #5555550f;
+                        border-color: #fafafa54;
+                        border-width: 2px;
+                        Text {
+                            color: white;
+                            text: "The target size that is set when the app opens";
+                        }
+
+                        visible: defaultTargetSizeTooltip.has-hover;
+                    }
                 }
 
                 Text {
@@ -454,6 +470,23 @@ export component App inherits Window {
                     text: "                Output Name Style: ";
                     font-size: 15px;
                     height: 17px;
+                    outputNameStyleTooltip := TouchArea { }
+
+                    Rectangle {
+                        width: 330px;
+                        height: 34px;
+                        x: -90px;
+                        y: -40px;
+                        background: #5555550f;
+                        border-color: #fafafa54;
+                        border-width: 2px;
+                        Text {
+                            color: white;
+                            text: "What the output file will be named. \nEx: output_Compressed.mp4 or 2024-05-30T13.00.26.mp4";
+                        }
+
+                        visible: outputNameStyleTooltip.has-hover;
+                    }
                 }
             }
 
@@ -511,10 +544,26 @@ export component App inherits Window {
                 alignment: start;
                 Text {
                     color: white;
-                    text: " Overwrite output.mp4:";
+                    text: " Overwrite output:";
                     font-size: 15px;
                     height: 17px;
                     min-width: 155px;
+                    overwriteTooltip := TouchArea { }
+
+                    Rectangle {
+                        width: 350px;
+                        x: 10px;
+                        y: 20px;
+                        background: #5555550f;
+                        border-color: #fafafa54;
+                        border-width: 2px;
+                        Text {
+                            color: white;
+                            text: "If a file exists with same filename as the output overwrite it";
+                        }
+
+                        visible: overwriteTooltip.has-hover;
+                    }
                 }
 
                 //TODO: add bool overwrite as an argument to compress_video, if true pass -y ~~~\\output.mp4 into ffmpeg
@@ -536,6 +585,22 @@ export component App inherits Window {
                     font-size: 15px;
                     height: 17px;
                     min-width: 155px;
+                    twopassTooltip := TouchArea { }
+
+                    Rectangle {
+                        width: 300px;
+                        x: 10px;
+                        y: 20px;
+                        background: #5555550f;
+                        border-color: #fafafa54;
+                        border-width: 2px;
+                        Text {
+                            color: white;
+                            text: "Slower compression but better quality output";
+                        }
+
+                        visible: twopassTooltip.has-hover;
+                    }
                 }
 
                 ToggleSwitch {
