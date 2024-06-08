@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 use std::{
     collections::HashMap,
     env,
@@ -15,7 +15,8 @@ use chrono::prelude::*;
 use slint::{ SharedString, Weak };
 
 /*Notes
-TODO: add more info to settings, Compression for Audio & Images, File type conversions, make changes to run on unix based systems
+TODO: Make audio have KB as a size option and make target more acurate, Compression for Images, add tests and setup github actions,
+File type conversions, make changes to run on unix based systems
 */
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -28,14 +29,48 @@ fn main() {
         let weak = app.as_weak();
         move |value| {
             let app = weak.unwrap();
-            if value == ChooseFileButtonType::Input {
-                let files = FileDialog::new().add_filter("video", &["mp4"]).pick_file();
+            let is_input: bool;
+            let name: &str;
+            let mut extensions: Vec<&str> = Vec::new();
+
+            match value {
+                ChooseFileButtonType::VideoIn => {
+                    is_input = true;
+                    name = "video";
+                    extensions = ["mp4"].to_vec();
+                }
+                ChooseFileButtonType::VideoOut => {
+                    is_input = false;
+                    name = "video";
+                }
+                ChooseFileButtonType::AudioIn => {
+                    is_input = true;
+                    name = "audio";
+                    extensions = ["mp3"].to_vec();
+                }
+                ChooseFileButtonType::AudioOut => {
+                    is_input = false;
+                    name = "audio";
+                }
+                ChooseFileButtonType::ImageIn => {
+                    is_input = true;
+                    name = "image";
+                    extensions = ["png"].to_vec();
+                }
+                ChooseFileButtonType::ImageOut => {
+                    is_input = false;
+                    name = "image";
+                }
+            }
+
+            if is_input {
+                let files = FileDialog::new().add_filter(name, &extensions).pick_file();
                 if files.is_some() {
                     app.set_input_path(
                         SharedString::from(files.unwrap().as_os_str().to_str().unwrap())
                     )
                 }
-            } else if value == ChooseFileButtonType::Output {
+            } else {
                 let files = FileDialog::new().add_filter("video", &["mp4"]).pick_folder();
                 if files.is_some() {
                     app.set_output_path(
@@ -43,15 +78,14 @@ fn main() {
                     )
                 }
             }
-            //TODO: else if value == default_input/output for settings menu
         }
     });
 
-    //Calls compress_video when the compress button is pressed.
-    //compress_video is called on a new thread so the gui still responds while video is compressing
+    //Calls the corresponding compress function when the compress button is pressed.
+    //compress_... functions are called on a new thread so the gui still responds while video is compressing
     app.global::<ButtonLogic>().on_compress_button_pressed({
         let weak = app.as_weak();
-        move || {
+        move |value| {
             let app = weak.unwrap();
             let input_path = app.get_input_path().to_string();
             let output_path = app.get_output_path().to_string();
@@ -69,15 +103,39 @@ fn main() {
             let weak = app.as_weak();
             thread::spawn(move || {
                 let weak_copy = weak.clone();
-                let compress_result = compress_video(
-                    input_path,
-                    output_path,
-                    target_size,
-                    size_unit,
-                    overwrite,
-                    output_name_style,
-                    two_pass_encoding
-                );
+                let compress_result: Result<(), Error>;
+                dbg!(&value);
+                if value == CompressButtonType::Video {
+                    compress_result = compress_video(
+                        input_path,
+                        output_path,
+                        target_size,
+                        size_unit,
+                        overwrite,
+                        output_name_style,
+                        two_pass_encoding
+                    );
+                } else if value == CompressButtonType::Audio {
+                    compress_result = compress_audio(
+                        input_path,
+                        output_path,
+                        target_size,
+                        size_unit,
+                        overwrite,
+                        output_name_style
+                    );
+                } else {
+                    //Placeholder untill compress_image is made
+                    compress_result = compress_video(
+                        input_path,
+                        output_path,
+                        target_size,
+                        size_unit,
+                        overwrite,
+                        output_name_style,
+                        two_pass_encoding
+                    );
+                }
                 let string_result;
 
                 match compress_result {
@@ -280,7 +338,6 @@ fn compress_video(
         .trim()
         .parse()
         .unwrap();
-    dbg!(&duration);
     let video_bitrate: f32 = from_utf8(
         Command::new("ffprobe")
             .args([
@@ -401,12 +458,191 @@ fn compress_video(
             "Total Time Elapsed: {}ms",
             Local::now().signed_duration_since(timer).num_milliseconds()
         );
-        dbg!(&compress_status);
         if output_contains_error(&compress_status) {
             return get_output_error(compress_status);
         } else {
             return Ok(());
         }
+    }
+}
+
+fn compress_audio(
+    input_path: String,
+    output_path: String,
+    mut target_size: f32,
+    size_unit: String,
+    overwrite: bool,
+    output_name_style: String
+) -> Result<(), Error> {
+    //timer is used to track total time elapsed during compression and for the timestamp name style
+    let timer: DateTime<Local> = Local::now();
+    println!("\nStarting compression");
+    println!("input_path = {}", input_path);
+    println!("output_path = {}", output_path);
+    println!("target_size = {} MB", target_size);
+
+    //input validation
+    if !Path::new(&input_path).exists() {
+        return Err(Error::new(io::ErrorKind::InvalidInput, "The input file doesn't exist"));
+    }
+
+    if !Path::new(&output_path).exists() {
+        return Err(Error::new(io::ErrorKind::InvalidInput, "The output path doesn't exist"));
+    }
+
+    if target_size > (9999 as f32) || target_size < (1 as f32) {
+        return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid target size"));
+    }
+
+    //Turn target size into kB
+    match size_unit.as_str() {
+        "MB" => {
+            target_size *= 1024 as f32;
+        }
+        "GB" => {
+            target_size *= 1048576 as f32;
+        }
+        _ => {
+            return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"));
+        }
+    }
+
+    //create output file name
+    let mut output_file;
+    if output_name_style == "_Compressed" {
+        //add the name of the input file to the end of the output path
+        output_file = format!(
+            "{}{}",
+            &output_path,
+            &input_path[input_path.rfind("\\").unwrap()..input_path.len()]
+        );
+        //add _Compressed before the file extension
+        output_file.insert_str(output_file.rfind(".").unwrap(), "_Compressed");
+    } else if output_name_style == "timestamp" {
+        //add the name of the input file to the end of the output path
+        output_file = format!(
+            "{}{}",
+            &output_path,
+            &input_path[input_path.rfind("\\").unwrap()..input_path.len()]
+        );
+        //get timestamp
+        let mut timestamp = timer.to_rfc3339_opts(SecondsFormat::Secs, false).to_owned();
+
+        //remove utc offset from timestmap
+        timestamp.truncate(timestamp.len() - 6);
+
+        timestamp = timestamp.replace(':', ".");
+
+        //replace from start of file name to file extension with timestamp
+        output_file.replace_range(
+            output_file.rfind("\\").unwrap() + 1..output_file.rfind(".").unwrap(),
+            &timestamp
+        );
+    } else {
+        output_file = format!("{}{}", &output_path, "\\output.mp3");
+    }
+
+    let mut file_number = 1;
+    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented untill a file with the name doesnt exist
+    while Path::new(&output_file.as_str()).exists() && !overwrite {
+        //add the parentheses on the first loop
+        if file_number == 1 {
+            output_file.insert_str(output_file.rfind(".").unwrap(), "( )");
+        }
+
+        output_file.replace_range(
+            output_file.rfind(")").unwrap() - 1..output_file.rfind(")").unwrap(),
+            &file_number.to_string()
+        );
+        file_number += 1;
+    }
+
+    //TODO: Error handling if one of these doesnt return
+    let duration: f32 = from_utf8(
+        Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                &input_path,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("Invalid duration")
+            .stdout.as_ref()
+    )
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let audio_bitrate: f32 = from_utf8(
+        Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=bit_rate",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                &input_path,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("Invalid audio bitrate")
+            .stdout.as_ref()
+    )
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+
+    println!("duration = {} seconds", duration);
+
+    //Calculate new bitrate in kB/s
+    let new_audio_bitrate = target_size / duration;
+
+    println!("old_bitrate = {} kB/s", audio_bitrate / (8192 as f32));
+    println!("new_bitrate = {} kB/s", new_audio_bitrate);
+
+    //Make sure the new bitrate is lower than the old bitrate
+    if new_audio_bitrate > audio_bitrate / (8192 as f32) {
+        return Err(
+            Error::new(
+                io::ErrorKind::InvalidInput,
+                "The audio's current filesize is too close to the target. Please try a smaller target."
+            )
+        );
+    }
+
+    //This runs ffmpeg to lower the videos bitrate
+    let compress_status = Command::new("ffmpeg")
+        .args([
+            "-v",
+            "fatal",
+            "-i",
+            &input_path,
+            "-b:a",
+            &format!("{new_audio_bitrate}KiB"),
+            "-y",
+            &output_file,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    println!(
+        "Total Time Elapsed: {}ms",
+        Local::now().signed_duration_since(timer).num_milliseconds()
+    );
+    if output_contains_error(&compress_status) {
+        return get_output_error(compress_status);
+    } else {
+        return Ok(());
     }
 }
 

@@ -48,13 +48,23 @@ export component ToggleSwitch inherits Rectangle {
 
 //Enum for types of Choose File buttons throughout the app
 enum ChooseFileButtonType{
-    Input,
-    Output
+    VideoIn,
+    VideoOut,
+    AudioIn,
+    AudioOut,
+    ImageIn,
+    ImageOut,
+}
+
+enum CompressButtonType{
+    Video,
+    Audio,
+    Image
 }
 
 export global ButtonLogic {
     callback choose-file-button-pressed(ChooseFileButtonType);
-    callback compress-button-pressed();
+    callback compress-button-pressed(CompressButtonType);
     callback settings-apply();
     callback settings-cancel();
 }
@@ -84,6 +94,7 @@ component ChooseFile {
 
 component CompressButton {
     in-out property <bool> enabled <=> ta.enabled;
+    in property <CompressButtonType> type;
     Rectangle {
         background: ta.enabled ? (ta.pressed ? #0a470d : #12df2d) : #0a470d;
         animate background { duration: 50ms; }
@@ -94,7 +105,7 @@ component CompressButton {
         border-color: self.background.darker(20%);
         ta := TouchArea {
             clicked => {
-                ButtonLogic.compress-button-pressed();
+                ButtonLogic.compress-button-pressed(type);
             }
         }
     }
@@ -180,8 +191,8 @@ export component App inherits Window {
     //properties that are given to compress function in main
     in property <string> compress_status;
     in property <bool> widgets-enabled: true;
-    in property <string> input_path;
-    in property <string> output_path;
+    in-out property <string> input_path;
+    in-out property <string> output_path;
     in-out property <int> target_size: default_target_size;
     in-out property <string> size_unit: default_size_unit;
     //Current active page, 0 = video, 1 = image, 2 = audio, 3 = settings
@@ -197,7 +208,7 @@ export component App inherits Window {
         spacing: 12px;
         padding-right: 40px;
         //Sidebar with buttons to change tabs
-        Rectangle {
+        Sidebar := Rectangle {
             background: #555;
             max-width: 59px;
             min-width: 59px;
@@ -206,6 +217,8 @@ export component App inherits Window {
                 y: 10px;
                 activate => {
                     root.active_page = 0;
+                    input_path = "";
+                    output_path = "";
                 }
                 Image {
                     min-width: 50px;
@@ -218,10 +231,12 @@ export component App inherits Window {
                 y: 70px;
                 activate => {
                     root.active_page = 1;
+                    input_path = "";
+                    output_path = "";
                 }
                 Image {
                     min-width: 50px;
-                    source: @image-url("../../icons/image.svg");
+                    source: @image-url("../../icons/audio.svg");
                     colorize: (active_page == 1) ? #706d6d : black;
                 }
             }
@@ -230,10 +245,12 @@ export component App inherits Window {
                 y: 130px;
                 activate => {
                     root.active_page = 2;
+                    input_path = "";
+                    output_path = "";
                 }
                 Image {
                     min-width: 50px;
-                    source: @image-url("../../icons/audio.svg");
+                    source: @image-url("../../icons/image.svg");
                     colorize: (active_page == 2) ? #706d6d : black;
                 }
             }
@@ -251,8 +268,7 @@ export component App inherits Window {
             }
         }
 
-        //Video tab
-        VerticalLayout {
+        VideoTab := VerticalLayout {
             alignment: start;
             visible: root.active_page == 0;
             padding-top: 15px;
@@ -330,7 +346,7 @@ export component App inherits Window {
                 }
 
                 ChooseFile {
-                    type: ChooseFileButtonType.Input;
+                    type: ChooseFileButtonType.VideoIn;
                     enabled: widgets-enabled;
                 }
             }
@@ -358,7 +374,7 @@ export component App inherits Window {
                 }
 
                 ChooseFile {
-                    type: ChooseFileButtonType.Output;
+                    type: ChooseFileButtonType.VideoOut;
                     enabled: widgets-enabled;
                 }
             }
@@ -385,33 +401,16 @@ export component App inherits Window {
                 }
 
                 CompressButton {
+                    type: CompressButtonType.Video;
                     enabled: widgets-enabled;
                 }
             }
         }
 
-        //Image tab
-        VerticalLayout {
+        AudioTab := VerticalLayout {
             col: 1;
+            alignment: start;
             visible: root.active_page == 1;
-            padding-top: 15px;
-            spacing: 15px;
-            HorizontalLayout {
-                HorizontalLayout {
-                    padding-top: 0;
-                    Text {
-                        text: "Image";
-                        font-size: 20px;
-                        color: white;
-                    }
-                }
-            }
-        }
-
-        //Audio tab
-        VerticalLayout {
-            col: 1;
-            visible: root.active_page == 2;
             padding-top: 15px;
             spacing: 15px;
             HorizontalLayout {
@@ -422,10 +421,148 @@ export component App inherits Window {
                     color: white;
                 }
             }
+
+            //Target Size
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text: "Target File Size: ";
+                    font-size: 15px;
+                    min-height: 17px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 15px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    min-width: 50px;
+                    height: 30px;
+                    text: target_size;
+                    input-type: number;
+                    horizontal-alignment: left;
+                    //Keep target size less than 9999, anything else is proably unintentional or should be a different unit
+                    edited => {
+                        if self.text.to-float() > 9999 {
+                            self.text = 9999;
+                        }
+                        target_size = self.text.to-float();
+                    }
+                }
+
+                ComboBox {
+                    horizontal-stretch: 0;
+                    enabled: widgets-enabled;
+                    min-width: 70px;
+                    height: 30px;
+                    current-value: size_unit;
+                    model: ["MB", "GB"];
+                    selected => {
+                        size_unit = self.current-value;
+                    }
+                }
+            }
+
+            //Input
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text: "Input File: ";
+                    font-size: 15px;
+                    min-height: 17px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 30px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    font-size: 14px;
+                    horizontal-alignment: left;
+                    min-width: 280px;
+                    height: 30px;
+                    read-only: true;
+                    placeholder-text: input_path;
+                }
+
+                ChooseFile {
+                    type: ChooseFileButtonType.AudioIn;
+                    enabled: widgets-enabled;
+                }
+            }
+
+            //Output
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text: "Output File Path: ";
+                    font-size: 15px;
+                    min-height: 17px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 30px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    font-size: 14px;
+                    horizontal-alignment: left;
+                    min-width: 280px;
+                    height: 30px;
+                    read-only: true;
+                    placeholder-text: output_path;
+                }
+
+                ChooseFile {
+                    type: ChooseFileButtonType.AudioOut;
+                    enabled: widgets-enabled;
+                }
+            }
+
+            //Compress
+            HorizontalLayout {
+                spacing: 35px;
+                padding-top: 50px;
+                //compress_status text
+                //TODO: find way to display longer messages
+                Text {
+                    color: white;
+                    text: compress_status;
+                    font-size: 15px;
+                    height: 50px;
+                    min-width: root.width - 300px;
+                    wrap: word-wrap;
+                    horizontal-alignment: left;
+                }
+
+                Spinner {
+                    indeterminate: true;
+                    visible: !widgets-enabled;
+                }
+
+                CompressButton {
+                    type: CompressButtonType.Audio;
+                    enabled: widgets-enabled;
+                }
+            }
         }
 
-        //Settings tab
-        VerticalLayout {
+        ImageTab := VerticalLayout {
+            col: 1;
+            visible: root.active_page == 2;
+            padding-top: 15px;
+            spacing: 15px;
+            HorizontalLayout {
+                padding-top: 0;
+                Text {
+                    text: "Image";
+                    font-size: 20px;
+                    color: white;
+                }
+            }
+        }
+
+        SettingsTab := VerticalLayout {
             col: 1;
             visible: root.active_page == 3;
             padding-top: 15px;
