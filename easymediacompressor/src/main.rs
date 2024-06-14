@@ -15,8 +15,8 @@ use chrono::prelude::*;
 use slint::{ SharedString, Weak };
 
 /*Notes
-TODO: Make audio have KB as a size option and make target more acurate, Compression for Images, add tests and setup github actions,
-File type conversions, make changes to run on unix based systems
+TODO: Compression for Images, add tests and setup github actions,
+Seperate default sizes for each type, File type conversions, make changes to run on unix based systems
 */
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -125,7 +125,7 @@ fn main() {
                         output_name_style
                     );
                 } else {
-                    //Placeholder untill compress_image is made
+                    //Placeholder until compress_image is made
                     compress_result = compress_video(
                         input_path,
                         output_path,
@@ -237,7 +237,7 @@ fn compress_video(
     println!("\nStarting compression");
     println!("input_path = {}", input_path);
     println!("output_path = {}", output_path);
-    println!("target_size = {} MB", target_size);
+    println!("target_size = {} {}", target_size, size_unit);
 
     //input validation
     if !Path::new(&input_path).exists() {
@@ -301,7 +301,7 @@ fn compress_video(
     }
 
     let mut file_number = 1;
-    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented untill a file with the name doesnt exist
+    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented until a file with the name doesnt exist
     while Path::new(&output_file.as_str()).exists() && !overwrite {
         //add the parentheses on the first loop
         if file_number == 1 {
@@ -370,7 +370,7 @@ fn compress_video(
     println!("new_bitrate = {} kB/s", new_video_bitrate);
 
     //Make sure the new bitrate is lower than the old bitrate
-    if new_video_bitrate > video_bitrate / (8192 as f32) {
+    if new_video_bitrate >= video_bitrate / (8192 as f32) {
         return Err(
             Error::new(
                 io::ErrorKind::InvalidInput,
@@ -479,7 +479,7 @@ fn compress_audio(
     println!("\nStarting compression");
     println!("input_path = {}", input_path);
     println!("output_path = {}", output_path);
-    println!("target_size = {} MB", target_size);
+    println!("target_size = {} {}", target_size, size_unit);
 
     //input validation
     if !Path::new(&input_path).exists() {
@@ -502,6 +502,7 @@ fn compress_audio(
         "GB" => {
             target_size *= 1048576 as f32;
         }
+        "KB" => {}
         _ => {
             return Err(Error::new(io::ErrorKind::InvalidInput, "Invalid size unit"));
         }
@@ -543,7 +544,7 @@ fn compress_audio(
     }
 
     let mut file_number = 1;
-    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented untill a file with the name doesnt exist
+    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented until a file with the name doesnt exist
     while Path::new(&output_file.as_str()).exists() && !overwrite {
         //add the parentheses on the first loop
         if file_number == 1 {
@@ -605,14 +606,27 @@ fn compress_audio(
 
     println!("duration = {} seconds", duration);
 
-    //Calculate new bitrate in kB/s
-    let new_audio_bitrate = target_size / duration;
+    //Calculate new bitrate in Kbit/s
+    let mut new_audio_bitrate = (target_size * 8.192) / duration;
+    //Using constant bitrate only the following bitrates are available for audio
+    // prettier-ignore
+    let possible_bitrates:Vec<f32> = vec![8.0, 16.0, 24.0, 32.0, 40.0, 48.0, 64.0, 80.0, 96.0, 112.0, 128.0, 160.0, 192.0, 224.0, 256.0, 320.0, 999999.0];
 
-    println!("old_bitrate = {} kB/s", audio_bitrate / (8192 as f32));
-    println!("new_bitrate = {} kB/s", new_audio_bitrate);
+    for bitrate_index in 0..possible_bitrates.len() {
+        if
+            new_audio_bitrate > possible_bitrates[bitrate_index] &&
+            new_audio_bitrate < possible_bitrates[bitrate_index + 1]
+        {
+            new_audio_bitrate = possible_bitrates[bitrate_index];
+            break;
+        }
+    }
+
+    println!("old_bitrate = {} Kbit/s", audio_bitrate / (1000 as f32));
+    println!("new_bitrate = {} Kbit/s", new_audio_bitrate);
 
     //Make sure the new bitrate is lower than the old bitrate
-    if new_audio_bitrate > audio_bitrate / (8192 as f32) {
+    if new_audio_bitrate >= audio_bitrate / (1000 as f32) {
         return Err(
             Error::new(
                 io::ErrorKind::InvalidInput,
@@ -629,7 +643,7 @@ fn compress_audio(
             "-i",
             &input_path,
             "-b:a",
-            &format!("{new_audio_bitrate}KiB"),
+            &format!("{new_audio_bitrate}k"),
             "-y",
             &output_file,
         ])
