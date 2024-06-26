@@ -15,8 +15,8 @@ use chrono::prelude::*;
 use slint::{ SharedString, Weak };
 
 /*Notes
-TODO: Compression for Images, add tests and setup github actions,
-Seperate default sizes for each type, File type conversions, make changes to run on unix based systems
+TODO: add tests and setup github actions, Seperate default sizes for each type, 
+File type conversions, make changes to run on unix based systems, add gif compression
 */
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -55,7 +55,7 @@ fn main() {
                 ChooseFileButtonType::ImageIn => {
                     is_input = true;
                     name = "image";
-                    extensions = ["png"].to_vec();
+                    extensions = ["png", "jpg"].to_vec();
                 }
                 ChooseFileButtonType::ImageOut => {
                     is_input = false;
@@ -125,15 +125,11 @@ fn main() {
                         output_name_style
                     );
                 } else {
-                    //Placeholder until compress_image is made
-                    compress_result = compress_video(
+                    compress_result = compress_image(
                         input_path,
                         output_path,
-                        target_size,
-                        size_unit,
                         overwrite,
-                        output_name_style,
-                        two_pass_encoding
+                        output_name_style
                     );
                 }
                 let string_result;
@@ -635,7 +631,7 @@ fn compress_audio(
         );
     }
 
-    //This runs ffmpeg to lower the videos bitrate
+    //This runs ffmpeg to lower the audio bitrate
     let compress_status = Command::new("ffmpeg")
         .args([
             "-v",
@@ -644,6 +640,108 @@ fn compress_audio(
             &input_path,
             "-b:a",
             &format!("{new_audio_bitrate}k"),
+            "-y",
+            &output_file,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    println!(
+        "Total Time Elapsed: {}ms",
+        Local::now().signed_duration_since(timer).num_milliseconds()
+    );
+    if output_contains_error(&compress_status) {
+        return get_output_error(compress_status);
+    } else {
+        return Ok(());
+    }
+}
+
+fn compress_image(
+    input_path: String,
+    output_path: String,
+    overwrite: bool,
+    output_name_style: String
+) -> Result<(), Error> {
+    //timer is used to track total time elapsed during compression and for the timestamp name style
+    let timer: DateTime<Local> = Local::now();
+    println!("\nStarting compression");
+    println!("input_path = {}", input_path);
+    println!("output_path = {}", output_path);
+
+    //input validation
+    if !Path::new(&input_path).exists() {
+        return Err(Error::new(io::ErrorKind::InvalidInput, "The input file doesn't exist"));
+    }
+
+    if !Path::new(&output_path).exists() {
+        return Err(Error::new(io::ErrorKind::InvalidInput, "The output path doesn't exist"));
+    }
+
+    //create output file name
+    let mut output_file;
+    if output_name_style == "_Compressed" {
+        //add the name of the input file to the end of the output path
+        output_file = format!(
+            "{}{}",
+            &output_path,
+            &input_path[input_path.rfind("\\").unwrap()..input_path.len()]
+        );
+        //add _Compressed before the file extension
+        output_file.insert_str(output_file.rfind(".").unwrap(), "_Compressed");
+    } else if output_name_style == "timestamp" {
+        //add the name of the input file to the end of the output path
+        output_file = format!(
+            "{}{}",
+            &output_path,
+            &input_path[input_path.rfind("\\").unwrap()..input_path.len()]
+        );
+        //get timestamp
+        let mut timestamp = timer.to_rfc3339_opts(SecondsFormat::Secs, false).to_owned();
+
+        //remove utc offset from timestmap
+        timestamp.truncate(timestamp.len() - 6);
+
+        timestamp = timestamp.replace(':', ".");
+
+        //replace from start of file name to file extension with timestamp
+        output_file.replace_range(
+            output_file.rfind("\\").unwrap() + 1..output_file.rfind(".").unwrap(),
+            &timestamp
+        );
+    } else {
+        output_file = format!("{}{}", &output_path, "\\output.jpg");
+    }
+
+    let mut file_number = 1;
+    //if file exist and overwrite is false, add (file_number) to the file name, file_number is incremented until a file with the name doesnt exist
+    while Path::new(&output_file.as_str()).exists() && !overwrite {
+        //add the parentheses on the first loop
+        if file_number == 1 {
+            output_file.insert_str(output_file.rfind(".").unwrap(), "( )");
+        }
+
+        output_file.replace_range(
+            output_file.rfind(")").unwrap() - 1..output_file.rfind(")").unwrap(),
+            &file_number.to_string()
+        );
+        file_number += 1;
+    }
+
+    //This runs ffmpeg to compress the image
+    let compress_status = Command::new("ffmpeg")
+        .args([
+            "-v",
+            "fatal",
+            "-i",
+            &input_path,
+            "-vframes",
+            "1",
+            "-r",
+            "1",
+            "-compression_level",
+            "9",
+            "-flags",
+            "-ildct",
             "-y",
             &output_file,
         ])

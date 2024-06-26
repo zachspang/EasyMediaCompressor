@@ -549,6 +549,7 @@ export component App inherits Window {
 
         ImageTab := VerticalLayout {
             col: 1;
+            alignment: start;
             visible: root.active_page == 2;
             padding-top: 15px;
             spacing: 15px;
@@ -558,6 +559,100 @@ export component App inherits Window {
                     text: "Image";
                     font-size: 20px;
                     color: white;
+                }
+            }
+
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text: "Compress image while keeping quality";
+                    font-size: 15px;
+                    min-height: 17px;
+                }
+            }
+
+            Rectangle { }
+
+            //Input
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text: "Input File: ";
+                    font-size: 15px;
+                    min-height: 17px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 30px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    font-size: 14px;
+                    horizontal-alignment: left;
+                    min-width: 280px;
+                    height: 30px;
+                    read-only: true;
+                    placeholder-text: input_path;
+                }
+
+                ChooseFile {
+                    type: ChooseFileButtonType.ImageIn;
+                    enabled: widgets-enabled;
+                }
+            }
+
+            //Output
+            HorizontalLayout {
+                Text {
+                    color: white;
+                    text: "Output File Path: ";
+                    font-size: 15px;
+                    min-height: 17px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 30px;
+                LineEdit {
+                    enabled: widgets-enabled;
+                    font-size: 14px;
+                    horizontal-alignment: left;
+                    min-width: 280px;
+                    height: 30px;
+                    read-only: true;
+                    placeholder-text: output_path;
+                }
+
+                ChooseFile {
+                    type: ChooseFileButtonType.ImageOut;
+                    enabled: widgets-enabled;
+                }
+            }
+
+            //Compress
+            HorizontalLayout {
+                spacing: 35px;
+                padding-top: 50px;
+                //compress_status text
+                //TODO: find way to display longer messages
+                Text {
+                    color: white;
+                    text: compress_status;
+                    font-size: 15px;
+                    height: 50px;
+                    min-width: root.width - 300px;
+                    wrap: word-wrap;
+                    horizontal-alignment: left;
+                }
+
+                Spinner {
+                    indeterminate: true;
+                    visible: !widgets-enabled;
+                }
+
+                CompressButton {
+                    type: CompressButtonType.Image;
+                    enabled: widgets-enabled;
                 }
             }
         }

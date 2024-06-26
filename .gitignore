@@ -3,3 +3,4 @@
 easymediacompressor/target/
 **/x265_2pass*
 **/config.txt
+.cargo/
