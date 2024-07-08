@@ -202,9 +202,65 @@ fn main() {
     });
 
     //initialize variables with config file
-    match read_config(app.as_weak()) {
+    match read_config() {
+        Ok(result) => {
+            println!("Config successfully read");
+            let config_map = result;
+
+            let mut default_target_size = 25;
+            let mut default_size_unit = SharedString::from("MB");
+            let mut overwrite = true;
+            let mut output_name_style = SharedString::from("_Compressed");
+            let mut two_pass_encoding = false;
+
+            //if a key is in the map and the value is valid set the variable
+            if config_map.contains_key("default_target_size") {
+                let value = config_map.get("default_target_size").unwrap().parse::<i32>().unwrap();
+                if value < 9999 || value > 1 {
+                    default_target_size = value;
+                }
+            }
+
+            if config_map.contains_key("default_size_unit") {
+                let value = config_map.get("default_size_unit").unwrap();
+                if value == "MB" || value == "GB" {
+                    default_size_unit = SharedString::from(value);
+                }
+            }
+
+            if config_map.contains_key("overwrite") {
+                let value = config_map.get("overwrite").unwrap();
+                if value == "true" {
+                    overwrite = true;
+                } else {
+                    overwrite = false;
+                }
+            }
+
+            if config_map.contains_key("output_name_style") {
+                let value = config_map.get("output_name_style").unwrap();
+                if value == "_Compressed" || value == "timestamp" {
+                    output_name_style = SharedString::from(value);
+                }
+            }
+
+            if config_map.contains_key("two_pass_encoding") {
+                let value = config_map.get("two_pass_encoding").unwrap();
+                if value == "true" {
+                    two_pass_encoding = true;
+                } else {
+                    two_pass_encoding = false;
+                }
+            }
+
+            //set variables in app
+            app.set_default_target_size(default_target_size);
+            app.set_default_size_unit(SharedString::from(default_size_unit));
+            app.set_overwrite(overwrite);
+            app.set_output_name_style(SharedString::from(output_name_style));
+            app.set_two_pass_encoding(two_pass_encoding);
+        }
         Err(e) => println!("Config error {}", e),
-        Ok(_) => println!("Config successfully read"),
     }
 
     app.run().unwrap();
@@ -758,8 +814,7 @@ fn compress_image(
     }
 }
 
-fn read_config(weak: Weak<App>) -> Result<(), Error> {
-    let app = weak.unwrap();
+fn read_config() -> Result<HashMap<String, String>, Error> {
     let file = File::open("..\\config.txt")?;
     let buffer = BufReader::new(file);
     let mut config_map: HashMap<String, String> = HashMap::new();
@@ -773,48 +828,7 @@ fn read_config(weak: Weak<App>) -> Result<(), Error> {
             split_vector.get(1).unwrap_or(&"".to_string()).trim().to_owned()
         );
     }
-
-    //if a key is in the map and the value is valid change the setting in the app
-    if config_map.contains_key("default_target_size") {
-        let value = config_map.get("default_target_size").unwrap().parse::<i32>().unwrap();
-        if value < 9999 || value > 1 {
-            app.set_default_target_size(value);
-        }
-    }
-
-    if config_map.contains_key("default_size_unit") {
-        let value = config_map.get("default_size_unit").unwrap();
-        if value == "MB" || value == "GB" {
-            app.set_default_size_unit(SharedString::from(value));
-        }
-    }
-
-    if config_map.contains_key("overwrite") {
-        let value = config_map.get("overwrite").unwrap();
-        if value == "true" {
-            app.set_overwrite(true);
-        } else {
-            app.set_overwrite(false);
-        }
-    }
-
-    if config_map.contains_key("output_name_style") {
-        let value = config_map.get("output_name_style").unwrap();
-        if value == "_Compressed" || value == "timestamp" {
-            app.set_output_name_style(SharedString::from(value));
-        }
-    }
-
-    if config_map.contains_key("two_pass_encoding") {
-        let value = config_map.get("two_pass_encoding").unwrap();
-        if value == "true" {
-            app.set_two_pass_encoding(true);
-        } else {
-            app.set_two_pass_encoding(false);
-        }
-    }
-
-    Ok(())
+    return Ok(config_map);
 }
 
 fn output_contains_error(result: &Result<std::process::Output, Error>) -> bool {
