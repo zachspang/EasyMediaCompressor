@@ -6,7 +6,7 @@ use std::{
     io::{ self, BufRead, BufReader, Error, LineWriter, Write },
     os::windows::process::CommandExt,
     path::Path,
-    process::Command,
+    process::{ Command, ExitCode },
     str::from_utf8,
     thread,
 };
@@ -15,14 +15,121 @@ use chrono::prelude::*;
 use slint::{ SharedString, Weak };
 
 /*Notes
-TODO: add tests and setup github actions, Seperate default sizes for each type, 
+TODO: use a different formatter for main, add fuctions for repetative parts of the compress functions, 
+add tests and setup github actions, Seperate default sizes for each type, 
 File type conversions, make changes to run on unix based systems, add gif compression
 */
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 slint::include_modules!();
-fn main() {
+fn main() -> ExitCode {
+    let args: Vec<String> = env::args().collect();
+
+    let mut default_target_size = 25;
+    let mut default_size_unit = SharedString::from("MB");
+    let mut overwrite = true;
+    let mut output_name_style = SharedString::from("_Compressed");
+    let mut two_pass_encoding = false;
+
+    //initialize variables with config file
+    match read_config() {
+        Ok(result) => {
+            println!("Config successfully read");
+            let config_map = result;
+
+            //if a key is in the map and the value is valid set the variable
+            if config_map.contains_key("default_target_size") {
+                let value = config_map.get("default_target_size").unwrap().parse::<i32>().unwrap();
+                if value < 9999 || value > 1 {
+                    default_target_size = value;
+                }
+            }
+
+            if config_map.contains_key("default_size_unit") {
+                let value = config_map.get("default_size_unit").unwrap();
+                if value == "MB" || value == "GB" {
+                    default_size_unit = SharedString::from(value);
+                }
+            }
+
+            if config_map.contains_key("overwrite") {
+                let value = config_map.get("overwrite").unwrap();
+                if value == "true" {
+                    overwrite = true;
+                } else {
+                    overwrite = false;
+                }
+            }
+
+            if config_map.contains_key("output_name_style") {
+                let value = config_map.get("output_name_style").unwrap();
+                if value == "_Compressed" || value == "timestamp" {
+                    output_name_style = SharedString::from(value);
+                }
+            }
+
+            if config_map.contains_key("two_pass_encoding") {
+                let value = config_map.get("two_pass_encoding").unwrap();
+                if value == "true" {
+                    two_pass_encoding = true;
+                } else {
+                    two_pass_encoding = false;
+                }
+            }
+        }
+        Err(e) => println!("Config error {}", e),
+    }
+
+    //if a file is dragged onto the executable we want to not run the ui and just compress the file
+    if args.get(1).is_some() && Path::new(&args[1]).exists() {
+        //arrays of supported file formats
+        let video_formats = ["mp4"];
+        let audio_formats = ["mp3"];
+        let image_formats = ["jpg, png"];
+
+        let input_path = (&args[1]).to_owned();
+        let file_extension = &input_path[input_path.rfind(".").unwrap() + 1..input_path.len()];
+        let output_path = input_path[0..input_path.rfind("\\").unwrap()].to_string();
+
+        //TODO: add some type of popup dialog when there is an error here
+        if video_formats.contains(&file_extension) {
+            compress_video(
+                input_path,
+                output_path,
+                default_target_size as f32,
+                default_size_unit.to_string(),
+                overwrite,
+                output_name_style.to_string(),
+                two_pass_encoding
+            ).expect("Compression Error: ");
+        } else if audio_formats.contains(&file_extension) {
+            compress_audio(
+                input_path,
+                output_path,
+                default_target_size as f32,
+                default_size_unit.to_string(),
+                overwrite,
+                output_name_style.to_string()
+            ).expect("Compression Error: ");
+        } else if image_formats.contains(&file_extension) {
+            compress_image(
+                input_path,
+                output_path,
+                overwrite,
+                output_name_style.to_string()
+            ).expect("Compression Error: ");
+        }
+        return ExitCode::SUCCESS;
+    }
+
     let app = App::new().unwrap();
+
+    //set variables in app
+    app.set_default_target_size(default_target_size);
+    app.set_default_size_unit(SharedString::from(default_size_unit));
+    app.set_overwrite(overwrite);
+    app.set_output_name_style(SharedString::from(output_name_style));
+    app.set_two_pass_encoding(two_pass_encoding);
 
     //Opens system file dialog to select a file path
     app.global::<ButtonLogic>().on_choose_file_button_pressed({
@@ -201,69 +308,8 @@ fn main() {
         }
     });
 
-    //initialize variables with config file
-    match read_config() {
-        Ok(result) => {
-            println!("Config successfully read");
-            let config_map = result;
-
-            let mut default_target_size = 25;
-            let mut default_size_unit = SharedString::from("MB");
-            let mut overwrite = true;
-            let mut output_name_style = SharedString::from("_Compressed");
-            let mut two_pass_encoding = false;
-
-            //if a key is in the map and the value is valid set the variable
-            if config_map.contains_key("default_target_size") {
-                let value = config_map.get("default_target_size").unwrap().parse::<i32>().unwrap();
-                if value < 9999 || value > 1 {
-                    default_target_size = value;
-                }
-            }
-
-            if config_map.contains_key("default_size_unit") {
-                let value = config_map.get("default_size_unit").unwrap();
-                if value == "MB" || value == "GB" {
-                    default_size_unit = SharedString::from(value);
-                }
-            }
-
-            if config_map.contains_key("overwrite") {
-                let value = config_map.get("overwrite").unwrap();
-                if value == "true" {
-                    overwrite = true;
-                } else {
-                    overwrite = false;
-                }
-            }
-
-            if config_map.contains_key("output_name_style") {
-                let value = config_map.get("output_name_style").unwrap();
-                if value == "_Compressed" || value == "timestamp" {
-                    output_name_style = SharedString::from(value);
-                }
-            }
-
-            if config_map.contains_key("two_pass_encoding") {
-                let value = config_map.get("two_pass_encoding").unwrap();
-                if value == "true" {
-                    two_pass_encoding = true;
-                } else {
-                    two_pass_encoding = false;
-                }
-            }
-
-            //set variables in app
-            app.set_default_target_size(default_target_size);
-            app.set_default_size_unit(SharedString::from(default_size_unit));
-            app.set_overwrite(overwrite);
-            app.set_output_name_style(SharedString::from(output_name_style));
-            app.set_two_pass_encoding(two_pass_encoding);
-        }
-        Err(e) => println!("Config error {}", e),
-    }
-
     app.run().unwrap();
+    return ExitCode::SUCCESS;
 }
 
 fn compress_video(
